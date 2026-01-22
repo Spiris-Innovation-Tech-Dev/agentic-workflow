@@ -1,0 +1,35 @@
+{
+  "name": "agentic-workflow",
+  "version": "1.0.0",
+  "description": "Multi-agent development workflow with planning, implementation, and documentation phases. Includes loop mode for autonomous execution.",
+  "author": "johanyman",
+  "license": "MIT",
+  "repository": "https://github.com/johanyman/agentic-workflow",
+  "keywords": [
+    "workflow",
+    "multi-agent",
+    "planning",
+    "implementation",
+    "documentation",
+    "loop-mode",
+    "autonomous"
+  ],
+  "commands": [
+    "commands/workflow.md",
+    "commands/workflow-config.md",
+    "commands/workflow-status.md",
+    "commands/workflow-resume.md"
+  ],
+  "agents": [
+    "agents/architect.md",
+    "agents/developer.md",
+    "agents/reviewer.md",
+    "agents/skeptic.md",
+    "agents/implementer.md",
+    "agents/feedback.md",
+    "agents/technical-writer.md"
+  ],
+  "config": [
+    "config/workflow-config.yaml"
+  ]
+}

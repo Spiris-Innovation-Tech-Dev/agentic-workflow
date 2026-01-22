@@ -1,0 +1,203 @@
+# Agentic Workflow Configuration
+# See: ~/.claude/plans/declarative-doodling-unicorn.md for full documentation
+#
+# Configuration Cascade (each level overrides the previous):
+#   1. Global defaults:  ~/.claude/workflow-config.yaml (this file)
+#   2. Project config:   <repo>/.claude/workflow-config.yaml
+#   3. Task config:      <repo>/.tasks/TASK_XXX/config.yaml
+#   4. Command args:     /workflow --loop-mode --max-iterations 50
+#
+# This allows different repos and tasks to have different settings
+
+# Checkpoint configuration - when to pause for human approval
+checkpoints:
+  planning:
+    after_architect: true      # Review architectural concerns before detailed planning
+    after_developer: false     # Auto-proceed to reviewer (plan needs validation first)
+    after_reviewer: true       # Review gaps found before skeptic
+    after_skeptic: true        # Review edge cases before implementation
+
+  implementation:
+    at_25_percent: false       # Auto-proceed through early stages
+    at_50_percent: true        # Halfway review - critical checkpoint
+    at_75_percent: false       # Auto-proceed to completion
+    before_commit: true        # Always review before committing
+
+  documentation:
+    after_technical_writer: true  # Review documentation updates before applying
+
+  feedback:
+    on_deviation: true         # Ask when implementation deviates from plan
+    on_test_failure: true      # Ask when tests fail unexpectedly
+    on_major_change: true      # Ask when scope seems to be creeping
+
+# Knowledge base location (relative to project root)
+knowledge_base: docs/ai-context/
+
+# Task file location (relative to project root)
+task_directory: .tasks/
+
+# Maximum iterations per phase before escalating to human
+max_iterations:
+  planning: 3                  # Architect → Developer → Reviewer → Skeptic cycles
+  implementation: 5            # Retries per major step
+  feedback: 2                  # Adjustment attempts before suggesting restart
+
+# Agent model configuration (all opus for maximum quality)
+# Note: Research agents (architect, developer, reviewer, skeptic) receive Gemini-analyzed context
+# Implementation agents (implementer, feedback) receive focused file context
+models:
+  orchestrator: opus
+  architect: opus              # Receives Gemini analysis via ARCHITECTURAL_CONTEXT section
+  developer: opus              # Receives Gemini analysis via IMPLEMENTATION_PATTERNS section
+  reviewer: opus               # Receives Gemini analysis via REVIEW_CHECKLIST section
+  skeptic: opus                # Receives Gemini analysis via FAILURE_MODES section
+  implementer: opus            # Receives focused files from current implementation step
+  feedback: opus               # Receives focused files for comparison
+  technical-writer: opus       # Documents findings and validates ai-context docs
+
+# Auto-actions (what agents can do without asking)
+auto_actions:
+  run_tests: true              # Agents can run tests automatically
+  create_files: true           # Agents can create new files
+  modify_files: true           # Agents can modify existing files
+  run_build: true              # Agents can run build commands
+  git_add: false               # Require approval for staging
+  git_commit: false            # Require approval for commits
+
+# Repomix integration
+repomix:
+  enabled: true
+  config_path: repomix.config.json
+  auto_refresh: true           # Re-run repomix when files change significantly
+
+# Gemini Research Integration
+# Leverages Gemini's massive context window for research phases
+# One Gemini analysis feeds focused context to all research agents
+gemini_research:
+  enabled: true                     # Master switch for Gemini-enhanced research
+  fallback_to_opus: true            # Use Opus with direct context if Gemini unavailable
+
+  # Research agents receive Gemini-analyzed context
+  research_agents:
+    - architect
+    - developer
+    - reviewer
+    - skeptic
+
+  # Implementation agents receive focused file context (no Gemini analysis needed)
+  implementation_agents:
+    - implementer
+    - feedback
+
+  # Documentation agents receive implementation context and existing docs
+  documentation_agents:
+    - technical-writer
+
+  # Context gathering settings (uses repomix-build pattern)
+  context_gathering:
+    include_base_classes: true      # Find and include base classes/interfaces
+    include_referenced: true        # Include files referenced by task-relevant code
+    include_examples: true          # Find similar patterns/examples in codebase
+    include_docs: true              # Include README, docs/, ai-context/
+    max_files: 100                  # Limit to prevent context explosion
+
+  # Gemini analysis prompt (comprehensive, produces sections for each agent)
+  analysis_prompt: |
+    Analyze this codebase for the following task. Provide separate sections:
+
+    ## ARCHITECTURAL_CONTEXT
+    - System boundaries and module relationships
+    - Data flow patterns
+    - Existing architectural patterns
+    - Integration points for the task
+    - Security patterns in use
+    - Dependency implications
+
+    ## IMPLEMENTATION_PATTERNS
+    - Code conventions and patterns used
+    - File organization and naming conventions
+    - Error handling patterns
+    - Testing patterns and conventions
+    - Similar implementations to use as reference
+    - Import/export patterns
+
+    ## REVIEW_CHECKLIST
+    - Patterns to verify against
+    - Security requirements that must be followed
+    - Testing conventions to maintain
+    - Common pitfalls in this codebase
+    - Areas of technical debt to avoid
+    - Consistency checks needed
+
+    ## FAILURE_MODES
+    - Error handling gaps
+    - Race condition patterns
+    - External dependency failure modes
+    - Data validation patterns
+    - Recovery/rollback patterns
+    - Edge cases to consider
+
+    ## DOCUMENTATION_CONTEXT
+    - Base classes and their abstract methods
+    - Inheritance hierarchies and responsibilities
+    - Framework usage patterns and conventions
+    - Key interfaces and their contracts
+    - Patterns that would be non-obvious to AI agents
+    - Configuration and initialization requirements
+
+    Task: {task_description}
+
+  # Error handling and fallback behavior
+  error_handling:
+    repomix_unavailable: fallback   # fallback | warn | fail
+    gemini_unavailable: fallback    # fallback | warn | fail
+    gemini_timeout: 120             # Seconds before timing out Gemini analysis
+
+# Loop Mode (Ralph Wiggum-style autonomous iteration)
+# When enabled, agents loop until completion instead of stopping after one attempt
+loop_mode:
+  enabled: false                    # Master toggle - override per-task with --loop-mode
+
+  # Which phases use loop mode
+  phases:
+    planning: false                 # Usually false - planning needs human judgment
+    implementation: true            # Loop until tests/build pass
+    documentation: false            # Usually false - docs are one-shot
+
+  # Completion signals - agents output these when done
+  completion_promise: "COMPLETE"    # e.g., <promise>COMPLETE</promise>
+  blocked_promise: "BLOCKED"        # e.g., <promise>BLOCKED: reason</promise>
+
+  # Iteration limits
+  max_iterations:
+    per_step: 10                    # Max attempts per implementation step
+    per_phase: 30                   # Max total iterations per phase
+    before_escalate: 5              # After N iterations, pause for human check
+
+  # Verification method - what "success" means
+  verification:
+    method: tests                   # tests | build | lint | custom | all
+    custom_command: ""              # Used when method is "custom"
+    require_all_pass: true          # For "all": must pass tests AND build AND lint
+
+  # Self-correction behavior
+  self_correction:
+    enabled: true                   # Allow agent to analyze failures and retry
+    max_same_error: 3               # After N identical errors, try different approach
+    read_full_output: true          # Force agent to read complete error output
+
+  # Escalation triggers
+  escalation:
+    on_repeated_failure: true       # Same error 3x = escalate to human
+    on_scope_creep: true            # Detected deviation from plan = escalate
+    on_security_concern: true       # Security-related changes = escalate
+
+# Beads Integration (optional)
+# Link workflow tasks to beads issues for persistent tracking
+beads:
+  enabled: false                    # Set to true to enable beads integration
+  auto_create_issue: false          # Create beads issue when starting workflow
+  auto_link: true                   # Link task to existing issue if mentioned
+  sync_status: true                 # Update beads issue status as workflow progresses
+  add_comments: true                # Add workflow progress as beads comments
