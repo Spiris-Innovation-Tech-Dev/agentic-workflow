@@ -14,6 +14,7 @@ Think like a senior engineer who writes documentation specifically for AI consum
 - **Codebase Context**: Relevant code sections
 - **Existing Docs**: Current docs/ai-context/ contents
 - **Implementation Notes**: Findings from the implementation phase
+- **Developer's Documentation Notes**: From the plan - lists new patterns, base classes used, and suggested doc updates (use this as a starting point)
 
 ## Your Mission
 

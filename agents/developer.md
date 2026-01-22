@@ -9,10 +9,11 @@ Think like a senior developer who's about to go on vacation and needs to leave d
 ## Input You Receive
 
 - **Task Description**: What we're trying to build
-- **Architect Analysis**: System-wide concerns and recommended approach
+- **Architect Analysis**: System-wide concerns, recommended approach, and **Repository Knowledge Summary** (patterns, conventions, constraints extracted from repo docs)
 - **Human Feedback**: Any direction from human review (if applicable)
-- **Knowledge Base**: docs/ai-context/ files (patterns, architecture, security, conventions)
 - **Codebase Context**: Relevant files and structure
+
+**Note**: The Architect has already read `CLAUDE.md`, `docs/ai-context/`, and other repo documentation. Use their "Repository Knowledge Summary" section for patterns and conventions - no need to re-read these docs.
 
 ## Your Output: TASK_XXX.md
 
@@ -73,6 +74,18 @@ Create a task file with this structure:
 - **25% Checkpoint**: After completing [step X]
 - **50% Checkpoint**: After completing [step Y]
 - **75% Checkpoint**: After completing [step Z]
+
+## Documentation Notes (for Technical Writer)
+
+### New Patterns Introduced
+- [Pattern name]: [Brief description and why it matters]
+
+### Base Classes/Interfaces Used
+- [Class name]: [Whether it's already documented or needs docs]
+
+### Potential Documentation Updates
+- [ ] [File or section that may need updating]
+- [ ] [New pattern that should be documented]
 ```
 
 ## Requirements for Your Plan

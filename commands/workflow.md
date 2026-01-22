@@ -496,10 +496,14 @@ $TASK_DESCRIPTION
 ## Implementation Notes
 [Key findings and patterns discovered during implementation]
 
+## Developer's Documentation Notes (from plan.md)
+[Extract the 'Documentation Notes' section from the Developer's plan - includes new patterns, base classes used, and suggested doc updates]
+
 ## Existing Documentation
 [Contents of docs/ai-context/ if exists]
 
 Analyze the implementation and update the AI context documentation.
+Use the Developer's Documentation Notes as a starting point - they identified what might need documenting during planning.
 Focus especially on documenting any existing base classes, frameworks, or patterns that were used but lack documentation.
 "
 )
