@@ -2,29 +2,29 @@
 
 You are the entry point for the AI-augmented development workflow. This workflow orchestrates multiple specialized agents to plan, implement, and validate development tasks.
 
-## Command: /workflow $ARGS
+## Command: /crew $ARGS
 
 Parse the arguments to determine the action:
 
 ### Actions
 
-1. **`/workflow <task description> [options]`** or **`/workflow start <task description> [options]`**
+1. **`/crew <task description> [options]`** or **`/crew start <task description> [options]`**
    - Start a new workflow for the given task
    - Creates .tasks/TASK_XXX directory
    - Begins with Architect agent
 
-2. **`/workflow resume <task_id>`**
+2. **`/crew resume <task_id>`**
    - Resume an existing workflow from its last state
    - Reads state from .tasks/TASK_XXX/state.yaml
 
-3. **`/workflow status`**
+3. **`/crew status`**
    - Show status of all active workflows
    - List .tasks/ contents
 
-4. **`/workflow proceed`**
+4. **`/crew proceed`**
    - Skip current checkpoint and continue
 
-5. **`/workflow config`**
+5. **`/crew config`**
    - Show/edit workflow configuration
 
 ### Command-Line Options
@@ -46,12 +46,12 @@ These options override configuration file settings for this task only:
 
 **Pattern 1: Simple inline task**
 ```
-/workflow "Add user authentication with JWT"
+/crew "Add user authentication with JWT"
 ```
 
 **Pattern 2: Options first, then multi-line task**
 ```
-/workflow --loop-mode --no-checkpoints --max-iterations 50
+/crew --loop-mode --no-checkpoints --max-iterations 50
 
 Implement a complete caching layer:
 
@@ -69,12 +69,12 @@ Implement a complete caching layer:
 
 **Pattern 3: Task file for complex/reusable tasks**
 ```
-/workflow --loop-mode --task ./tasks/implement-caching.md
+/crew --loop-mode --task ./tasks/implement-caching.md
 ```
 
 **Pattern 4: Beads issue as task source**
 ```
-/workflow --beads CACHE-12 --loop-mode
+/crew --beads CACHE-12 --loop-mode
 ```
 (Reads task description from beads issue body)
 
@@ -116,19 +116,19 @@ Add Redis-based caching to improve API performance.
 
 ```bash
 # Simple task
-/workflow "Add logout button to navbar"
+/crew "Add logout button to navbar"
 
 # Loop mode for test fixing
-/workflow --loop-mode --verify tests "Fix all failing unit tests"
+/crew --loop-mode --verify tests "Fix all failing unit tests"
 
 # Complex overnight task with file
-/workflow --loop-mode --no-checkpoints --max-iterations 50 --task ./migrate-to-v2.md
+/crew --loop-mode --no-checkpoints --max-iterations 50 --task ./migrate-to-v2.md
 
 # From beads issue
-/workflow --beads API-42 --loop-mode
+/crew --beads API-42 --loop-mode
 
 # Multi-line inline (just keep typing)
-/workflow --loop-mode --no-checkpoints
+/crew --loop-mode --no-checkpoints
 
 Refactor the authentication module:
 
@@ -169,9 +169,9 @@ Read the agent prompts from `~/.claude/agents/`:
 Load configuration with cascading overrides:
 
 ```
-1. Global defaults:  ~/.claude/workflow-config.yaml
+1. Global defaults:  ~/.claude/crew-config.yaml
        ↓ (merge)
-2. Project config:   <repo>/.claude/workflow-config.yaml (if exists)
+2. Project config:   <repo>/.claude/crew-config.yaml (if exists)
        ↓ (merge)
 3. Task config:      .tasks/TASK_XXX/config.yaml (if resuming)
        ↓ (override)
@@ -179,8 +179,8 @@ Load configuration with cascading overrides:
 ```
 
 **Configuration loading:**
-1. Read `~/.claude/workflow-config.yaml` as base config
-2. Check for `<repo>/.claude/workflow-config.yaml`:
+1. Read `~/.claude/crew-config.yaml` as base config
+2. Check for `<repo>/.claude/crew-config.yaml`:
    - If exists, deep-merge into config (project settings override global)
 3. If resuming task, check `.tasks/TASK_XXX/config.yaml`:
    - If exists, deep-merge into config (task settings override project)

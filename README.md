@@ -51,22 +51,22 @@ Existing config files are backed up with a timestamp.
 
 ### Simple task with checkpoints
 ```bash
-/workflow "Add user authentication with JWT"
+/crew "Add user authentication with JWT"
 ```
 
 ### Loop mode (autonomous until tests pass)
 ```bash
-/workflow --loop-mode --verify tests "Fix all failing tests"
+/crew --loop-mode --verify tests "Fix all failing tests"
 ```
 
 ### From a task file
 ```bash
-/workflow --loop-mode --task ./tasks/implement-caching.md
+/crew --loop-mode --task ./tasks/implement-caching.md
 ```
 
 ### Overnight autonomous run
 ```bash
-/workflow --loop-mode --no-checkpoints --max-iterations 50
+/crew --loop-mode --no-checkpoints --max-iterations 50
 
 Migrate all API endpoints to v2:
 - Update request/response types
@@ -76,8 +76,56 @@ Migrate all API endpoints to v2:
 
 ### With beads issue tracking
 ```bash
-/workflow --beads CACHE-12 --loop-mode
+/crew --beads CACHE-12 --loop-mode
 ```
+
+## Workflow Lifecycle
+
+Each `/crew` invocation is a **complete cycle** that runs through all phases:
+
+```
+/crew "task" → Planning → Implementation → Documentation → Complete
+```
+
+### After Completion
+
+When a crew finishes:
+- All changes are made but **not committed** (unless you approve)
+- Documentation updates are proposed
+- The task state is saved in `.tasks/TASK_XXX/`
+
+### Starting a New Task
+
+If you have feedback or want changes after a crew completes, **start a new crew**:
+
+```bash
+# Original task completed, now want refinements
+/crew "Refine the authentication - add rate limiting"
+```
+
+The new crew will:
+1. See the changes from the previous task (they're in the codebase)
+2. Run through all agents again with fresh analysis
+3. Build on or modify the previous work
+
+### Resuming Interrupted Work
+
+If a crew is interrupted (you close the terminal, etc.), resume it:
+
+```bash
+/crew-resume           # Lists resumable tasks
+/crew-resume TASK_042  # Resume specific task
+```
+
+### Why Start Fresh?
+
+Each crew invocation brings fresh perspectives from all agents. For significant changes or new requirements, a new crew ensures:
+- Architect re-evaluates system impact
+- Developer creates a proper plan
+- Reviewer and Skeptic validate the approach
+- Full documentation cycle runs
+
+For small tweaks, you can always make direct edits without using the crew.
 
 ## Architecture
 
@@ -161,11 +209,11 @@ Captures knowledge for future AI sessions:
 
 ## Commands
 
-### `/workflow`
+### `/crew`
 Main command for starting or resuming workflows.
 
 ```bash
-/workflow [options] [task description]
+/crew [options] [task description]
 ```
 
 **Options:**
@@ -180,11 +228,11 @@ Main command for starting or resuming workflows.
 | `--beads <issue>` | Link to beads issue (e.g., `AUTH-42`) |
 | `--task <file>` | Read task from markdown file |
 
-### `/workflow-status`
+### `/crew-status`
 Display status of all active workflows.
 
 ```bash
-/workflow-status
+/crew-status
 ```
 
 Shows:
@@ -193,20 +241,20 @@ Shows:
 - Active agent
 - Next steps and resume command
 
-### `/workflow-resume`
+### `/crew-resume`
 Resume an interrupted workflow.
 
 ```bash
-/workflow-resume [task-id]
+/crew-resume [task-id]
 ```
 
 Without `task-id`, shows a list of resumable tasks.
 
-### `/workflow-config`
+### `/crew-config`
 View or modify configuration.
 
 ```bash
-/workflow-config
+/crew-config
 ```
 
 Interactive menu offering:
@@ -219,9 +267,9 @@ Interactive menu offering:
 Configuration uses a cascade system where each level overrides the previous:
 
 ```
-~/.claude/workflow-config.yaml          ← Global defaults
+~/.claude/crew-config.yaml          ← Global defaults
        ↓
-<repo>/.claude/workflow-config.yaml     ← Project overrides
+<repo>/.claude/crew-config.yaml     ← Project overrides
        ↓
 .tasks/TASK_XXX/config.yaml             ← Task-specific
        ↓
@@ -419,7 +467,7 @@ For complex tasks, create a markdown file:
 
 Run with:
 ```bash
-/workflow --loop-mode --task ./tasks/implement-caching.md
+/crew --loop-mode --task ./tasks/implement-caching.md
 ```
 
 ## Completion Signals
@@ -472,7 +520,7 @@ See the `/examples` directory:
 ### Workflow stuck in loop
 Check `.tasks/TASK_XXX/errors.log` for repeated errors. The workflow escalates after `max_same_error` identical failures, but you can manually resume:
 ```bash
-/workflow-resume TASK_XXX
+/crew-resume TASK_XXX
 ```
 
 ### Gemini analysis timeout
@@ -489,7 +537,7 @@ The Feedback agent detects deviations. If `escalation.on_scope_creep: true`, the
 ### Resume after crash
 State is persisted to `.tasks/TASK_XXX/state.yaml`. Run:
 ```bash
-/workflow-resume
+/crew-resume
 ```
 to see all resumable tasks.
 
@@ -502,7 +550,7 @@ to see all resumable tasks.
 This removes:
 - Commands from `~/.claude/commands/`
 - Agents from `~/.claude/agents/`
-- Config from `~/.claude/workflow-config.yaml`
+- Config from `~/.claude/crew-config.yaml`
 
 Task state in `.tasks/` is preserved.
 

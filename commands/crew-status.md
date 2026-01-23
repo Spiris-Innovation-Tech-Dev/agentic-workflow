@@ -2,7 +2,7 @@
 
 Show the status of all active workflows.
 
-## Command: /workflow-status
+## Command: /crew-status
 
 List all task directories in `.tasks/` and summarize their state.
 
@@ -22,7 +22,7 @@ Read `.tasks/TASK_XXX/state.yaml` and display:
 │ Last Action: Completed Step 2.3 - Added auth middleware     │
 │ Next:        Step 2.4 - Add token refresh endpoint          │
 │                                                             │
-│ Resume: /workflow resume TASK_042                           │
+│ Resume: /crew resume TASK_042                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,7 +40,7 @@ If multiple tasks:
 
 ### Actions
 
-- **Resume a task**: `/workflow resume TASK_XXX`
+- **Resume a task**: `/crew resume TASK_XXX`
 - **View task details**: Read `.tasks/TASK_XXX/plan.md`
 - **View agent outputs**: Check `.tasks/TASK_XXX/*.md`
 

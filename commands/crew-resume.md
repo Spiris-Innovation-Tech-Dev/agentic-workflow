@@ -2,7 +2,7 @@
 
 Resume an existing workflow from its saved state.
 
-## Command: /workflow-resume $ARGS
+## Command: /crew-resume $ARGS
 
 Arguments should be a task ID like `TASK_042` or a path like `.tasks/TASK_042_auth-jwt`.
 

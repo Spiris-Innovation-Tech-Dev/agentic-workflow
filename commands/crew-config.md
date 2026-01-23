@@ -2,11 +2,11 @@
 
 View and modify workflow configuration settings.
 
-## Command: /workflow-config
+## Command: /crew-config
 
 ### Current Configuration
 
-Read and display `~/.claude/workflow-config.yaml`:
+Read and display `~/.claude/crew-config.yaml`:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -77,7 +77,7 @@ Offer preset configurations:
 ### Apply Changes
 
 After getting user preferences:
-1. Update `~/.claude/workflow-config.yaml`
+1. Update `~/.claude/crew-config.yaml`
 2. Confirm changes
 3. Show new configuration
 
