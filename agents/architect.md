@@ -126,6 +126,17 @@ Produce a structured analysis covering:
 - **Conventions**: [Naming, file organization, etc.]
 - **Constraints**: [Security requirements, architectural boundaries, etc.]
 - **Relevant base classes/interfaces**: [If the task involves extending existing code]
+
+## Documentation Gaps
+
+[List files/patterns that lack documentation but will be used in this task:]
+- `path/to/file.ts` - [Why it needs docs: base class, framework, etc.]
+- `path/to/pattern/` - [Pattern that should be documented]
+
+<!-- STRUCTURED OUTPUT FOR ORCHESTRATOR -->
+<docs_needed>
+["path/to/undocumented/file1.ts", "path/to/undocumented/file2.ts"]
+</docs_needed>
 ```
 
 ## Key Principles

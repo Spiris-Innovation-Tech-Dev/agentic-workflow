@@ -113,6 +113,16 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 [ ] **APPROVE** - Ready for Skeptic review
 [x] **REVISE** - Needs changes before proceeding
 [ ] **REJECT** - Fundamental problems, needs re-planning
+
+<!-- STRUCTURED OUTPUT FOR ORCHESTRATOR -->
+<!-- If REVISE or REJECT, include review_issues JSON for loop-back tracking -->
+<review_issues>
+[
+  {"type": "critical", "step": "2.3", "description": "Missing error handling"},
+  {"type": "important", "step": "1.2", "description": "Incorrect import path"}
+]
+</review_issues>
+<recommendation>APPROVE|REVISE|REJECT</recommendation>
 ```
 
 ## Review Principles

@@ -15,7 +15,7 @@ Parse the arguments to determine the action:
 
 2. **`/crew resume <task_id>`**
    - Resume an existing workflow from its last state
-   - Reads state from .tasks/TASK_XXX/state.yaml
+   - Reads state from .tasks/TASK_XXX/state.json
 
 3. **`/crew status`**
    - Show status of all active workflows
@@ -148,7 +148,11 @@ When starting a new workflow:
 
 1. Generate task ID: `TASK_XXX` where XXX is next available number
 2. Create directory: `.tasks/TASK_XXX_<slugified-name>/`
-3. Create state file: `state.yaml`
+3. Initialize workflow state (JSON format):
+   ```bash
+   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase architect
+   ```
+   This creates `state.json` and sets initial phase to `architect`
 4. Check for `docs/ai-context/` - load if exists
 5. Check for repomix config - generate context if available
 
@@ -398,9 +402,21 @@ Provide your architectural analysis.
 
 After Architect completes:
 1. Save output to `.tasks/TASK_XXX/architect.md`
-2. Check if checkpoint is configured (`after_architect: true`)
-3. If checkpoint: Present summary and ask human to approve/revise/restart
-4. If no checkpoint: Proceed to Developer agent
+2. **Parse docs_needed** from output and save to state:
+   ```python
+   import re, json
+   match = re.search(r'<docs_needed>\s*(\[.*?\])\s*</docs_needed>', output, re.DOTALL)
+   if match:
+       docs = json.loads(match.group(1))
+       # Run: python workflow_state.py --task-dir .tasks/TASK_XXX/ mark-docs docs
+   ```
+3. **Transition state** to developer:
+   ```bash
+   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase developer
+   ```
+4. Check if checkpoint is configured (`after_architect: true`)
+5. If checkpoint: Present summary and ask human to approve/revise/restart
+6. If no checkpoint: Proceed to Developer agent
 
 ### Step 6: Continue Through Planning Loop
 
@@ -408,11 +424,16 @@ Architect → Developer → Reviewer → Skeptic
 
 At each step:
 1. Load previous agent output
-2. Spawn next agent with context
-3. Save output
-4. Check for checkpoint
-5. Handle human input if needed
-6. Check for concerns requiring iteration
+2. **Transition state** before spawning:
+   ```bash
+   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase <next_phase>
+   ```
+3. Spawn next agent with context
+4. Save output
+5. **Parse structured outputs** (review_issues, recommendation)
+6. Check for checkpoint
+7. Handle human input if needed
+8. **If REVISE**: Loop back to developer, increment iteration in state
 
 ### Step 7: Start Implementation Loop
 
@@ -524,69 +545,131 @@ When all steps complete:
 3. Ask human to approve commit
 4. Update lessons-learned.md
 
-## State Management
+## State Management (Enforced)
 
-Track state in `.tasks/TASK_XXX/state.yaml`:
+The workflow uses **enforced state management** with hooks to ensure agents run in the correct order.
 
-```yaml
-task_id: TASK_042
-task_name: "auth-jwt"
-description: "Add user authentication with JWT"
-created_at: 2024-01-15T10:30:00Z
-current_phase: planning          # planning | implementation | documentation | complete
-current_agent: architect
-iteration: 1
-progress:
-  total_steps: 0
-  completed_steps: 0
-  percentage: 0
-last_checkpoint: null
-human_decisions:
-  - timestamp: 2024-01-15T10:35:00Z
-    checkpoint: after_architect
-    decision: approve
-    notes: "Proceed with JWT approach"
-documentation:
-  status: pending                # pending | in_progress | complete | skipped
-  findings_count: 0
-  docs_created: []
-  docs_updated: []
-  validation_issues: []
+### State File: `.tasks/TASK_XXX/state.json`
 
-# Loop mode tracking (when enabled)
-loop_mode:
-  enabled: true
-  current_step_iterations: 0
-  total_iterations: 0
-  verification_results:
-    - step: 1
-      iterations: 3
-      final_status: passed
-      errors_encountered:
-        - "TypeError: undefined is not a function"
-        - "TypeError: undefined is not a function"
-    - step: 2
-      iterations: 1
-      final_status: passed
-      errors_encountered: []
-  escalations:
-    - step: 3
-      iteration: 5
-      reason: "repeated_failure"
-      resolved: true
-
-# Beads integration (when enabled)
-beads:
-  linked_issue: "CACHE-12"
-  comments_added:
-    - timestamp: 2024-01-15T10:30:00Z
-      comment_id: "c_001"
-      content: "Workflow started: TASK_042"
-    - timestamp: 2024-01-15T11:00:00Z
-      comment_id: "c_002"
-      content: "Planning complete, implementation starting"
-  status_synced: true
+```json
+{
+  "task_id": "TASK_042",
+  "phase": "architect",
+  "phases_completed": [],
+  "review_issues": [],
+  "iteration": 1,
+  "docs_needed": [],
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T10:30:00Z"
+}
 ```
+
+### State Management Commands
+
+```bash
+# Initialize state for new task
+python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase architect
+
+# Transition to next phase
+python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase developer
+
+# Get current state
+python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ get
+
+# Get state summary
+python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ summary
+```
+
+### Phase Order (Enforced)
+
+The workflow MUST follow this phase order:
+1. `architect` - Read-only analysis, flags documentation gaps
+2. `developer` - Creates implementation plan
+3. `reviewer` - Validates plan, may loop back to developer
+4. `skeptic` - Edge case analysis
+5. `implementer` - Executes the plan
+6. `technical_writer` - Updates documentation (ALWAYS runs)
+
+**Enforcement hooks** prevent skipping phases:
+- `PreToolUse` hook blocks spawning wrong agents
+- `Stop` hook blocks completion before Technical Writer runs
+
+### Workflow Enforcement Diagram
+
+```
+User: /crew "Add feature X"
+        │
+        ▼
+┌─────────────────┐
+│ 1. ARCHITECT    │ ← Reads code, CLAUDE.md, docs
+│    (read-only)  │   Outputs: docs_needed → state.json
+└────────┬────────┘
+         │ transition(developer)
+         ▼
+┌─────────────────┐
+│ 2. DEVELOPER    │ ← Creates plan with doc notes
+│    (planning)   │   References architect's findings
+└────────┬────────┘
+         │ transition(reviewer)
+         ▼
+┌─────────────────┐
+│ 3. REVIEWER     │ ← Validates plan
+│    (read-only)  │   Outputs: review_issues → state.json
+└────────┬────────┘
+         │
+         ▼
+    ┌────────────┐
+    │ Issues?    │──YES──→ Loop back to DEVELOPER
+    └────────────┘              (iteration++)
+         │ NO
+         ▼
+┌─────────────────┐
+│ 4. SKEPTIC      │ ← Edge cases
+│    (read-only)  │   May add more issues
+└────────┬────────┘
+         │ transition(implementer)
+         ▼
+┌─────────────────┐
+│ 5. IMPLEMENTER  │ ← Executes plan
+│    (full access)│   Step by step
+└────────┬────────┘
+         │ transition(technical_writer)
+         ▼
+┌─────────────────┐
+│ 6. TECH WRITER  │ ← ALWAYS RUNS (enforced by Stop hook)
+│    (docs only)  │   Reads docs_needed from state
+└────────┬────────┘
+         │
+         ▼
+    Stop hook allows completion
+```
+
+### Parsing Agent Outputs
+
+After each agent completes, parse their structured output:
+
+**Architect output** → Extract `<docs_needed>` JSON:
+```python
+# Parse and save to state
+import json, re
+match = re.search(r'<docs_needed>\s*(\[.*?\])\s*</docs_needed>', output, re.DOTALL)
+if match:
+    docs = json.loads(match.group(1))
+    # Add to state.json via workflow_state.py
+```
+
+**Reviewer output** → Extract `<review_issues>` JSON and `<recommendation>`:
+```python
+# If recommendation is REVISE, loop back to developer
+# The review_issues are saved to state for tracking
+```
+
+### Beads Integration (Optional)
+
+When `beads.enabled: true` in configuration:
+- Links workflow to beads issue
+- Adds comments at phase transitions
+- Syncs status (in_progress, blocked, done)
 
 ## Beads Integration
 

@@ -15,6 +15,7 @@ Think like a senior engineer who writes documentation specifically for AI consum
 - **Existing Docs**: Current docs/ai-context/ contents
 - **Implementation Notes**: Findings from the implementation phase
 - **Developer's Documentation Notes**: From the plan - lists new patterns, base classes used, and suggested doc updates (use this as a starting point)
+- **Architect's Documentation Gaps**: Files flagged during architectural analysis as needing documentation (from workflow state `docs_needed`)
 
 ## Your Mission
 
@@ -23,6 +24,18 @@ Think like a senior engineer who writes documentation specifically for AI consum
 3. **Document base classes and frameworks** that AI agents need to understand
 4. **Write for AI first, humans second** (but keep it readable)
 5. **Document existing undocumented code** - If the task touched or extended existing base classes, frameworks, or patterns that have no documentation, document them now to make future tasks easier
+6. **Address Architect's documentation gaps** - Check the workflow state for `docs_needed` files flagged by the Architect and prioritize documenting those
+
+## First: Check Workflow State
+
+Before starting your analysis, read the workflow state to find documentation gaps identified earlier:
+
+```bash
+# Read the state file to find docs_needed
+cat .tasks/TASK_XXX/state.json | python -c "import sys,json; state=json.load(sys.stdin); print('\\n'.join(state.get('docs_needed', [])))"
+```
+
+These files were flagged by the Architect as lacking documentation but being relevant to the task. Prioritize documenting these.
 
 ## Documentation Analysis
 
