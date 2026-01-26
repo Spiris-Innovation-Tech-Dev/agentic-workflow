@@ -97,6 +97,52 @@ fi
 cp "$SCRIPT_DIR/config/workflow-config.yaml" "$CLAUDE_DIR/"
 echo "  ✓ workflow-config.yaml"
 
+# Install MCP server
+echo ""
+echo "Installing MCP server..."
+MCP_SERVER_DIR="$SCRIPT_DIR/mcp/agentic-workflow-server"
+
+if [ -d "$MCP_SERVER_DIR" ]; then
+  # Check if pip/pip3 is available
+  if command -v pip3 &> /dev/null; then
+    PIP_CMD="pip3"
+  elif command -v pip &> /dev/null; then
+    PIP_CMD="pip"
+  else
+    echo "  ⚠ pip not found, skipping MCP server installation"
+    echo "    Install with: pip install -e $MCP_SERVER_DIR"
+    PIP_CMD=""
+  fi
+
+  if [ -n "$PIP_CMD" ]; then
+    # Install in editable mode for development
+    echo "  Installing Python package..."
+    $PIP_CMD install -q -e "$MCP_SERVER_DIR" 2>/dev/null || {
+      echo "  ⚠ Failed to install MCP server package"
+      echo "    Try manually: $PIP_CMD install -e $MCP_SERVER_DIR"
+    }
+
+    # Register MCP server with Claude if claude CLI is available
+    if command -v claude &> /dev/null; then
+      echo "  Registering MCP server with Claude..."
+      # Remove existing registration if present
+      claude mcp remove agentic-workflow 2>/dev/null || true
+      # Add new registration using stdio transport
+      claude mcp add agentic-workflow -s user -- python3 -m agentic_workflow_server.server 2>/dev/null && {
+        echo "  ✓ MCP server registered: agentic-workflow"
+      } || {
+        echo "  ⚠ Failed to register MCP server"
+        echo "    Try manually: claude mcp add agentic-workflow -s user -- python3 -m agentic_workflow_server.server"
+      }
+    else
+      echo "  ⚠ Claude CLI not found, skipping MCP registration"
+      echo "    Register manually with: claude mcp add agentic-workflow -s user -- python3 -m agentic_workflow_server.server"
+    fi
+  fi
+else
+  echo "  ⚠ MCP server directory not found: $MCP_SERVER_DIR"
+fi
+
 # Set up hooks in settings.json
 echo ""
 echo "Configuring enforcement hooks..."
@@ -188,14 +234,25 @@ echo "  Installation complete!"
 echo "========================================"
 echo ""
 echo "Enforced workflow now active with:"
+echo "  • MCP server: Structured state & config tools"
 echo "  • PreToolUse hook: Validates agent transitions"
 echo "  • Stop hook: Ensures Technical Writer runs"
+echo ""
+echo "MCP Tools available:"
+echo "  workflow_initialize    - Create new task with initial state"
+echo "  workflow_transition    - Validate and execute phase transition"
+echo "  workflow_get_state     - Read current workflow state"
+echo "  workflow_can_stop      - Check if workflow can be stopped"
+echo "  config_get_effective   - Get merged configuration"
 echo ""
 echo "Quick start:"
 echo "  /crew \"Your task description\""
 echo ""
 echo "Loop mode (autonomous):"
 echo "  /crew --loop-mode --verify tests \"Fix failing tests\""
+echo ""
+echo "Verify MCP server:"
+echo "  claude mcp list"
 echo ""
 echo "Disable enforcement for a session:"
 echo "  export CREW_SKIP_VALIDATION=1"

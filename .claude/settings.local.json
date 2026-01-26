@@ -9,7 +9,10 @@
       "Bash(echo:*)",
       "Bash(ls:*)",
       "Bash(ag:*)",
-      "Bash(./install.sh)"
+      "Bash(./install.sh)",
+      "Bash(git -C /mnt/c/git/agentic-workflow status)",
+      "Bash(claude mcp:*)",
+      "mcp__jira__jira_issues_get"
     ]
   }
 }
