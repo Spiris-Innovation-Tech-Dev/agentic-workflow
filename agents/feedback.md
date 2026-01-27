@@ -49,11 +49,11 @@ For each deviation found:
 
 ### 3. Quality Assessment
 
-Check against knowledge base:
-- Does code follow docs/ai-context/patterns.md?
-- Are security requirements from security.md met?
-- Does naming follow conventions.md?
-- Is error handling per error-handling.md?
+Check against knowledge base (first discover what documentation exists):
+- Does code follow patterns documented in the knowledge base?
+- Are security requirements from the knowledge base met?
+- Does naming follow conventions from the knowledge base?
+- Is error handling consistent with knowledge base guidelines?
 
 ### 4. Progress Validation
 

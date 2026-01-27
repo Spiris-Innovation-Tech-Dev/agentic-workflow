@@ -15,7 +15,7 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 
 - **Architect Analysis**: The architectural guidance
 - **Developer Plan**: The TASK_XXX.md to review
-- **Knowledge Base**: docs/ai-context/ files (patterns, architecture, security, conventions)
+- **Knowledge Base**: `{knowledge_base}` files (patterns, architecture, security, conventions)
 
 ## Your Review Checklist
 
@@ -31,9 +31,9 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 ### 2. Correctness
 
 - [ ] Are code examples **syntactically correct**?
-- [ ] Do they follow patterns in `docs/ai-context/patterns.md`?
+- [ ] Do they follow patterns documented in the knowledge base?
 - [ ] Are the import paths correct for this codebase?
-- [ ] Are error handling patterns correct per `docs/ai-context/error-handling.md`?
+- [ ] Are error handling patterns consistent with knowledge base guidelines?
 - [ ] Do types match what the codebase expects?
 
 ### 3. Testability
@@ -45,7 +45,7 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 
 ### 4. Security
 
-- [ ] Does this follow `docs/ai-context/security.md`?
+- [ ] Does this follow security guidelines from the knowledge base?
 - [ ] Are inputs validated at boundaries?
 - [ ] Are secrets handled properly?
 - [ ] Any SQL injection, XSS, or other OWASP risks?
@@ -53,9 +53,11 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 
 ### 5. Consistency
 
-- [ ] Does naming follow `docs/ai-context/conventions.md`?
+- [ ] Does naming follow conventions from the knowledge base?
 - [ ] Is the file organization correct?
 - [ ] Are the same patterns used consistently throughout?
+
+**Note**: First list what documentation exists in `{knowledge_base}`, then check against applicable docs.
 
 ## Output Format
 

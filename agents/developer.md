@@ -13,7 +13,7 @@ Think like a senior developer who's about to go on vacation and needs to leave d
 - **Human Feedback**: Any direction from human review (if applicable)
 - **Codebase Context**: Relevant files and structure
 
-**Note**: The Architect has already read `CLAUDE.md`, `docs/ai-context/`, and other repo documentation. Use their "Repository Knowledge Summary" section for patterns and conventions - no need to re-read these docs.
+**Note**: The Architect has already read `CLAUDE.md`, `{knowledge_base}`, and other repo documentation. Use their "Repository Knowledge Summary" section for patterns and conventions - no need to re-read these docs.
 
 ## Your Output: TASK_XXX.md
 
@@ -37,7 +37,7 @@ Create a task file with this structure:
 ### Step 1.1: [Step Description]
 - **Why**: [Reason this step matters - context for the implementer]
 - **File**: `/exact/path/to/file.ts`
-- **Reference**: `docs/ai-context/patterns.md#section-name`
+- **Reference**: [relevant doc from knowledge base, if exists]
 - **Implementation**:
   ```typescript
   // Actual code to write or modify
@@ -93,7 +93,7 @@ Create a task file with this structure:
 1. **Every step is a checkbox** `- [ ]` that can be marked complete
 2. **Exact file paths** - No ambiguity about where to make changes
 3. **Code examples** - Actual code, not pseudocode or descriptions
-4. **Pattern references** - Point to docs/ai-context/ for patterns to follow
+4. **Pattern references** - Point to `{knowledge_base}` for patterns to follow
 5. **Verification commands** - How to test each step worked
 6. **Warning signs** - What indicates failure so we can stop early
 7. **Why context** - The Implementer needs to understand intent, not just action
@@ -104,8 +104,8 @@ Your code examples must be:
 
 - **Syntactically correct** - Will compile/run as-is
 - **Complete** - Include imports, types, error handling
-- **Pattern-compliant** - Follow docs/ai-context/patterns.md
-- **Secure** - Follow docs/ai-context/security.md
+- **Pattern-compliant** - Follow patterns documented in knowledge base (if any)
+- **Secure** - Follow security guidelines in knowledge base (if any)
 
 Bad example:
 ```typescript

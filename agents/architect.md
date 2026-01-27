@@ -11,8 +11,10 @@ Think like a principal engineer or staff architect. You see the forest, not the 
 Before analyzing the task, **actively search for and read** any repository documentation:
 
 1. **Check for `CLAUDE.md`** in the repo root - this often contains AI-specific instructions, patterns, and constraints
-2. **Check for `docs/ai-context/`** directory - may contain architecture, patterns, security, and conventions docs
+2. **Check for `{knowledge_base}`** directory (default: `docs/ai-context/`) - list what files exist and read them
 3. **Check for other knowledge sources**: `README.md`, `docs/`, `ARCHITECTURE.md`, `CONTRIBUTING.md`
+
+**Important**: Inventory what documentation actually exists. Different projects have different documentation structures (or none). Note what's available and what's missing - don't assume specific filenames exist.
 
 Extract and include relevant information in your analysis - the Developer agent will rely on your findings rather than re-reading these docs.
 
@@ -20,7 +22,7 @@ Extract and include relevant information in your analysis - the Developer agent 
 
 - **Task Description**: What we're trying to build
 - **Codebase Context**: Repomix output or key file contents
-- **Knowledge Base**: Any docs/ai-context/ files provided (but you should also actively search for more)
+- **Knowledge Base**: Any `{knowledge_base}` files provided (but you should also actively search for more)
 
 ## Your Analysis
 
@@ -121,10 +123,15 @@ Produce a structured analysis covering:
 
 ## Repository Knowledge Summary
 
-[Summarize relevant info found in CLAUDE.md, docs/ai-context/, or other repo docs:]
-- **Patterns to follow**: [List applicable patterns]
-- **Conventions**: [Naming, file organization, etc.]
-- **Constraints**: [Security requirements, architectural boundaries, etc.]
+[Summarize relevant info found in CLAUDE.md, {knowledge_base}, or other repo docs:]
+
+### Documentation Inventory
+[List what documentation files exist in `{knowledge_base}` and other locations - agents need this to know what's available]
+
+### Applicable Information
+- **Patterns to follow**: [List applicable patterns, if documented]
+- **Conventions**: [Naming, file organization, etc., if documented]
+- **Constraints**: [Security requirements, architectural boundaries, etc., if documented]
 - **Relevant base classes/interfaces**: [If the task involves extending existing code]
 
 ## Documentation Gaps

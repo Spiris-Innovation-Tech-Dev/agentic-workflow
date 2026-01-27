@@ -153,7 +153,11 @@ When starting a new workflow:
    python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase architect
    ```
    This creates `state.json` and sets initial phase to `architect`
-4. Check for `docs/ai-context/` - load if exists
+4. **Inventory knowledge base**:
+   - Check if `{knowledge_base}` directory exists (from config, default: `docs/ai-context/`)
+   - List all files in the directory (don't assume specific filenames)
+   - Save inventory to state for agents to reference
+   - Agents should know what documentation is available, not assume specific files exist
 5. Check for repomix config - generate context if available
 
 ### Step 2: Load Agent Prompts
@@ -208,6 +212,13 @@ Load configuration with cascading overrides:
 - This allows resuming with same settings
 - Also save resolved task description to `.tasks/TASK_XXX/task.md`
 
+**Variable substitution in agent prompts:**
+When building prompts for agents, substitute these placeholders:
+- `{knowledge_base}` → value of `config.knowledge_base` (default: `docs/ai-context/`)
+- `{task_directory}` → value of `config.task_directory` (default: `.tasks/`)
+
+This allows project-specific configuration of paths.
+
 ### Step 3.5: Context Preparation Phase
 
 If `gemini_research.enabled` is true in configuration:
@@ -245,7 +256,7 @@ Use the `/repomix-build` pattern to intelligently find relevant files:
 - Find usage examples in tests
 
 **Documentation**:
-- Always include: `docs/ai-context/*` if exists
+- Always include: `{knowledge_base}/*` (from config, default: `docs/ai-context/`)
 - Include: `README.md`, `docs/*.md`
 - Include: Architecture and pattern documentation
 
@@ -260,7 +271,7 @@ Create `.tasks/TASK_XXX/repomix-context.json`:
     "src/base/class.ts",
     "src/referenced/*.ts",
     "src/examples/*.ts",
-    "docs/ai-context/*.md"
+    "{knowledge_base}/*.md"
   ],
   "ignore": [
     "**/*.test.ts",
@@ -391,7 +402,11 @@ $TASK_DESCRIPTION
 [Else: Insert repomix output or key files]
 
 ## Knowledge Base
-[Insert docs/ai-context/* contents if they exist]
+[Insert contents from configured knowledge_base directory (config.knowledge_base, default: docs/ai-context/)]
+[Substitute {knowledge_base} in agent prompt with actual path from config]
+
+## Knowledge Base Inventory
+[List what documentation files exist in {knowledge_base} - agents should reference actual files, not assumed filenames]
 
 Provide your architectural analysis.
 "
@@ -521,7 +536,7 @@ $TASK_DESCRIPTION
 [Extract the 'Documentation Notes' section from the Developer's plan - includes new patterns, base classes used, and suggested doc updates]
 
 ## Existing Documentation
-[Contents of docs/ai-context/ if exists]
+[Contents of configured knowledge_base directory (config.knowledge_base, default: docs/ai-context/)]
 
 Analyze the implementation and update the AI context documentation.
 Use the Developer's Documentation Notes as a starting point - they identified what might need documenting during planning.
@@ -535,7 +550,7 @@ After Technical Writer completes:
 2. If `checkpoints.documentation.after_technical_writer: true`:
    - Present summary of documentation changes
    - Ask human to approve/revise documentation updates
-3. Apply approved documentation changes to `docs/ai-context/`
+3. Apply approved documentation changes to `{knowledge_base}` (from config)
 
 ### Step 9: Completion
 
