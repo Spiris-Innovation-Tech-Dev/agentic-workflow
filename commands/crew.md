@@ -27,6 +27,12 @@ Parse the arguments to determine the action:
 5. **`/crew config`**
    - Show/edit workflow configuration
 
+6. **`/crew ask <agent> <question or task> [options]`**
+   - Invoke a single agent for a quick consultation without starting a full workflow
+   - No state management, no phase enforcement
+   - Returns the agent's analysis directly
+   - See "Single Agent Consultation" section below
+
 ### Command-Line Options
 
 These options override configuration file settings for this task only:
@@ -138,6 +144,112 @@ Refactor the authentication module:
 4. Ensure all auth tests pass
 
 Output <promise>COMPLETE</promise> when done.
+
+# Quick architect opinion
+/crew ask architect "Should we use Redis or Memcached for caching?"
+
+# Skeptic review of a plan
+/crew ask skeptic --file .tasks/TASK_042/plan.md
+
+# Reviewer check with context
+/crew ask reviewer "Review this auth flow" --context src/auth/
+```
+
+## Single Agent Consultation
+
+The `/crew ask` command lets you invoke individual agents without the full workflow overhead. This is useful for:
+- Getting a quick second opinion
+- Reviewing a specific piece of code or design
+- Exploring alternatives before committing to a full workflow
+
+### Syntax
+
+```
+/crew ask <agent> <question or task> [options]
+```
+
+### Available Agents
+
+| Agent | Best For |
+|-------|----------|
+| `architect` | System design, trade-offs, architectural decisions |
+| `developer` | Implementation approach, code structure |
+| `reviewer` | Code review, plan validation, correctness checks |
+| `skeptic` | Edge cases, failure modes, what could go wrong |
+| `feedback` | Comparing implementation vs plan, deviation analysis |
+
+### Options for `/crew ask`
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--context <path>` | Include specific files/directories as context | `--context src/auth/` |
+| `--file <path>` | Read the question/task from a file | `--file ./question.md` |
+| `--plan <path>` | Include a plan file (for reviewer/skeptic) | `--plan .tasks/TASK_042/plan.md` |
+| `--diff` | Include current git diff as context | `--diff` |
+| `--model <model>` | Override model (default: opus) | `--model sonnet` |
+
+### How It Works
+
+1. **Load agent prompt** from `~/.claude/agents/<agent>.md`
+2. **Gather minimal context**:
+   - If `--context`: Read specified files/directories
+   - If `--diff`: Include `git diff` output
+   - If `--plan`: Include plan file contents
+   - Always: Check for `{knowledge_base}` and include inventory
+3. **Spawn single agent** with the Task tool
+4. **Return response** directly to user (no state saved)
+
+### Implementation
+
+When `/crew ask <agent> <question>` is detected:
+
+```
+Task(
+  subagent_type: "general-purpose",
+  model: "[from --model or default opus]",
+  prompt: "
+[Insert contents of ~/.claude/agents/<agent>.md]
+
+## Question/Task
+<question or contents of --file>
+
+## Context
+[If --context: contents of specified files]
+[If --diff: git diff output]
+[If --plan: plan file contents]
+
+## Knowledge Base Inventory
+[List files in {knowledge_base} if it exists]
+
+Provide your analysis. This is a standalone consultation, not part of a full workflow.
+"
+)
+```
+
+### Examples
+
+```bash
+# Quick architectural decision
+/crew ask architect "We need to add real-time notifications. Should we use WebSockets, SSE, or polling?"
+
+# Review specific code with context
+/crew ask reviewer "Is this authentication implementation secure?" --context src/auth/middleware.ts
+
+# Get skeptic's view on a plan
+/crew ask skeptic "What could go wrong with this migration?" --plan .tasks/TASK_015/plan.md
+
+# Developer perspective on current changes
+/crew ask developer "How should I structure these changes?" --diff
+
+# Multi-line question
+/crew ask architect
+
+We're considering two approaches for the payment system:
+
+1. Direct integration with Stripe API
+2. Using a payment abstraction layer
+
+What are the trade-offs? Which would you recommend for a system that might need to support multiple payment providers later?
 ```
 
 ## Starting a New Workflow

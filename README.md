@@ -16,6 +16,7 @@ Complex development tasks require multiple perspectives: architecture considerat
 ## Features
 
 - **Multi-agent architecture** - 7 specialized agents for different concerns
+- **Single agent consultation** - Quick `/crew ask` for second opinions without full workflow
 - **Human checkpoints** - Control points for review and approval at each phase
 - **Loop mode** - Autonomous iteration until tests/build pass (Ralph Wiggum-style)
 - **Configuration cascade** - Global → Project → Task → CLI overrides
@@ -77,6 +78,18 @@ Migrate all API endpoints to v2:
 ### With beads issue tracking
 ```bash
 /crew --beads CACHE-12 --loop-mode
+```
+
+### Quick consultation (no full workflow)
+```bash
+# Get architect's opinion on a design decision
+/crew ask architect "Should we use WebSockets or SSE for real-time updates?"
+
+# Have skeptic review your plan for edge cases
+/crew ask skeptic --plan .tasks/TASK_042/plan.md
+
+# Reviewer check on specific code
+/crew ask reviewer "Is this secure?" --context src/auth/
 ```
 
 ## Workflow Lifecycle
@@ -261,6 +274,55 @@ Interactive menu offering:
 - View current settings
 - Apply presets (Maximum Control, Fast Flow, Full Auto)
 - Edit individual settings
+
+### `/crew ask`
+Invoke a single agent for quick consultation without starting a full workflow.
+
+```bash
+/crew ask <agent> <question> [options]
+```
+
+**Available Agents:**
+
+| Agent | Best For |
+|-------|----------|
+| `architect` | System design, trade-offs, architectural decisions |
+| `developer` | Implementation approach, code structure |
+| `reviewer` | Code review, plan validation, correctness checks |
+| `skeptic` | Edge cases, failure modes, what could go wrong |
+| `feedback` | Comparing implementation vs plan |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--context <path>` | Include specific files/directories as context |
+| `--file <path>` | Read the question from a file |
+| `--plan <path>` | Include a plan file (for reviewer/skeptic) |
+| `--diff` | Include current git diff as context |
+| `--model <model>` | Override model (default: opus) |
+
+**Examples:**
+
+```bash
+# Quick architectural decision
+/crew ask architect "Redis vs Memcached for our caching needs?"
+
+# Review code with context
+/crew ask reviewer "Is this auth implementation secure?" --context src/auth/
+
+# Skeptic review of current changes
+/crew ask skeptic "What could go wrong?" --diff
+
+# Multi-line question
+/crew ask architect
+
+We're considering two approaches:
+1. Direct Stripe integration
+2. Payment abstraction layer
+
+What are the trade-offs for future multi-provider support?
+```
 
 ## Configuration
 
@@ -484,13 +546,15 @@ Agents output structured signals for state management:
 
 | Scenario | Recommended Approach |
 |----------|----------------------|
-| New feature (needs design) | Default (with checkpoints) |
-| Bug fix with clear repro | `--loop-mode --verify tests` |
-| "Make tests pass" | `--loop-mode --verify tests` |
-| "Fix the build" | `--loop-mode --verify build` |
-| Large refactor, review tomorrow | `--loop-mode --no-checkpoints` |
-| Security-sensitive changes | Default (never skip checkpoints) |
-| Overnight migration | `--loop-mode --no-checkpoints --max-iterations 50` |
+| Quick design question | `/crew ask architect "question"` |
+| Second opinion on approach | `/crew ask skeptic` or `/crew ask reviewer` |
+| New feature (needs design) | `/crew` (default with checkpoints) |
+| Bug fix with clear repro | `/crew --loop-mode --verify tests` |
+| "Make tests pass" | `/crew --loop-mode --verify tests` |
+| "Fix the build" | `/crew --loop-mode --verify build` |
+| Large refactor, review tomorrow | `/crew --loop-mode --no-checkpoints` |
+| Security-sensitive changes | `/crew` (never skip checkpoints) |
+| Overnight migration | `/crew --loop-mode --no-checkpoints --max-iterations 50` |
 
 ## Gemini + Repomix Integration
 
