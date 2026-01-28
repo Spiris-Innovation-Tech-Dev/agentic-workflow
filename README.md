@@ -465,7 +465,7 @@ All workflow state is stored in `.tasks/TASK_XXX/`:
 ```
 .tasks/
 └── TASK_001_jwt-authentication/
-    ├── state.yaml           # Current phase, progress, checkpoints
+    ├── state.json           # Current phase, progress, checkpoints
     ├── task.md              # Original task description
     ├── config.yaml          # Effective config (cascaded)
     ├── architect.md         # Architect output
@@ -481,24 +481,23 @@ All workflow state is stored in `.tasks/TASK_XXX/`:
 
 ### State File Format
 
-```yaml
-task_id: TASK_001
-description: "Add JWT authentication"
-phase: implementation
-progress: 50
-current_agent: implementer
-created_at: 2024-01-15T10:00:00Z
-updated_at: 2024-01-15T12:30:00Z
-checkpoints_passed:
-  - architect
-  - developer_plan
-  - reviewer
-  - skeptic
-loop_iterations: 3
-last_verification:
-  method: tests
-  result: failed
-  output: "2 tests failed"
+```json
+{
+  "task_id": "TASK_001",
+  "description": "Add JWT authentication",
+  "phase": "implementer",
+  "phases_completed": ["architect", "developer", "reviewer", "skeptic"],
+  "review_issues": [],
+  "iteration": 1,
+  "docs_needed": [],
+  "implementation_progress": {
+    "total_steps": 20,
+    "current_step": 10,
+    "steps_completed": ["1.1", "1.2", "2.1", "2.2", "2.3"]
+  },
+  "created_at": "2024-01-15T10:00:00Z",
+  "updated_at": "2024-01-15T12:30:00Z"
+}
 ```
 
 ## Task Files
@@ -599,7 +598,7 @@ gemini_research:
 The Feedback agent detects deviations. If `escalation.on_scope_creep: true`, the workflow pauses for human review. Check the deviation classification in the agent output.
 
 ### Resume after crash
-State is persisted to `.tasks/TASK_XXX/state.yaml`. Run:
+State is persisted to `.tasks/TASK_XXX/state.json`. Run:
 ```bash
 /crew-resume
 ```

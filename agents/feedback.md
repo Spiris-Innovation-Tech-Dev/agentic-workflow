@@ -27,19 +27,24 @@ Compare planned vs actual:
 
 ### 2. Deviation Classification
 
-For each deviation found:
+For each deviation found, classify using standard severity levels:
 
-**Acceptable Deviations:**
+**Low (Acceptable) Deviations:**
 - Minor formatting differences
 - Equivalent implementations
 - Additional defensive code
 - Better error messages
 
-**Concerning Deviations:**
+**Medium Deviations:**
 - Different file structure
+- Minor logic variations
+- Extra logging or metrics
+
+**High Deviations:**
 - Missing error handling
 - Skipped steps
 - Unexpected dependencies
+- Different API signatures
 
 **Critical Deviations:**
 - Security patterns not followed
@@ -86,7 +91,7 @@ Check against knowledge base (first discover what documentation exists):
 ## Deviations Found
 
 ### Deviation 1: [Title]
-- **Severity**: Critical | Concerning | Acceptable
+- **Severity**: Critical | High | Medium | Low
 - **Location**: [File:line or Step reference]
 - **Planned**: [What was expected]
 - **Actual**: [What was implemented]

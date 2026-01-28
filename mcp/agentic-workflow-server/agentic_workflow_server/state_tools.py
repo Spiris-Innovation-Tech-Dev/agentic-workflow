@@ -90,6 +90,17 @@ def _create_default_state(task_id: str) -> dict:
         "review_issues": [],
         "iteration": 1,
         "docs_needed": [],
+        "implementation_progress": {
+            "total_steps": 0,
+            "current_step": 0,
+            "steps_completed": []
+        },
+        "human_decisions": [],
+        "knowledge_base_inventory": {
+            "path": None,
+            "files": []
+        },
+        "concerns": [],
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat()
     }
@@ -492,3 +503,245 @@ def get_active_task() -> Optional[str]:
     if task_dir:
         return task_dir.name
     return None
+
+
+def workflow_set_implementation_progress(
+    total_steps: int,
+    current_step: int = 0,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Set implementation progress tracking."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "implementation_progress" not in state:
+        state["implementation_progress"] = {
+            "total_steps": 0,
+            "current_step": 0,
+            "steps_completed": []
+        }
+
+    state["implementation_progress"]["total_steps"] = total_steps
+    state["implementation_progress"]["current_step"] = current_step
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "implementation_progress": state["implementation_progress"],
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_complete_step(
+    step_id: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Mark an implementation step as completed."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "implementation_progress" not in state:
+        state["implementation_progress"] = {
+            "total_steps": 0,
+            "current_step": 0,
+            "steps_completed": []
+        }
+
+    progress = state["implementation_progress"]
+    if step_id not in progress["steps_completed"]:
+        progress["steps_completed"].append(step_id)
+    progress["current_step"] = len(progress["steps_completed"])
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "step_id": step_id,
+        "implementation_progress": progress,
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_add_human_decision(
+    checkpoint: str,
+    decision: str,
+    notes: str = "",
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Record a human decision at a checkpoint."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "human_decisions" not in state:
+        state["human_decisions"] = []
+
+    decision_record = {
+        "checkpoint": checkpoint,
+        "decision": decision,
+        "notes": notes,
+        "timestamp": datetime.now().isoformat()
+    }
+    state["human_decisions"].append(decision_record)
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "decision": decision_record,
+        "total_decisions": len(state["human_decisions"]),
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_set_kb_inventory(
+    path: str,
+    files: list[str],
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Store knowledge base inventory."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    state["knowledge_base_inventory"] = {
+        "path": path,
+        "files": files
+    }
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "knowledge_base_inventory": state["knowledge_base_inventory"],
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_add_concern(
+    source: str,
+    severity: str,
+    description: str,
+    concern_id: Optional[str] = None,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Add a concern from an agent."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "concerns" not in state:
+        state["concerns"] = []
+
+    if concern_id is None:
+        concern_id = f"C{len(state['concerns']) + 1:03d}"
+
+    concern = {
+        "id": concern_id,
+        "source": source,
+        "severity": severity,
+        "description": description,
+        "addressed_by": [],
+        "created_at": datetime.now().isoformat()
+    }
+    state["concerns"].append(concern)
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "concern": concern,
+        "total_concerns": len(state["concerns"]),
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_address_concern(
+    concern_id: str,
+    addressed_by: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Mark a concern as addressed."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "concerns" not in state:
+        return {
+            "success": False,
+            "error": f"Concern {concern_id} not found"
+        }
+
+    for concern in state["concerns"]:
+        if concern["id"] == concern_id:
+            if addressed_by not in concern["addressed_by"]:
+                concern["addressed_by"].append(addressed_by)
+            _save_state(task_dir, state)
+            return {
+                "success": True,
+                "concern": concern,
+                "task_id": state.get("task_id")
+            }
+
+    return {
+        "success": False,
+        "error": f"Concern {concern_id} not found"
+    }
+
+
+def workflow_get_concerns(
+    task_id: Optional[str] = None,
+    unaddressed_only: bool = False
+) -> dict[str, Any]:
+    """Get all concerns, optionally filtering to unaddressed only."""
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    concerns = state.get("concerns", [])
+
+    if unaddressed_only:
+        concerns = [c for c in concerns if not c.get("addressed_by")]
+
+    return {
+        "concerns": concerns,
+        "total": len(concerns),
+        "unaddressed_count": len([c for c in state.get("concerns", []) if not c.get("addressed_by")]),
+        "task_id": state.get("task_id")
+    }

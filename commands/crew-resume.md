@@ -8,20 +8,25 @@ Arguments should be a task ID like `TASK_042` or a path like `.tasks/TASK_042_au
 
 ### Step 1: Load State
 
-Read `.tasks/TASK_XXX/state.yaml`:
+Read `.tasks/TASK_XXX/state.json`:
 
-```yaml
-task_id: TASK_042
-task_name: "auth-jwt"
-description: "Add user authentication with JWT"
-current_phase: implementation
-current_agent: implementer
-iteration: 1
-progress:
-  total_steps: 20
-  completed_steps: 12
-  percentage: 60
-last_checkpoint: 50_percent
+```json
+{
+  "task_id": "TASK_042",
+  "description": "Add user authentication with JWT",
+  "phase": "implementer",
+  "phases_completed": ["architect", "developer", "reviewer", "skeptic"],
+  "review_issues": [],
+  "iteration": 1,
+  "docs_needed": [],
+  "implementation_progress": {
+    "total_steps": 20,
+    "current_step": 13,
+    "steps_completed": ["1.1", "1.2", "1.3", "2.1", "2.2", "2.3"]
+  },
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T12:30:00Z"
+}
 ```
 
 ### Step 2: Load Context

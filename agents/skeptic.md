@@ -91,6 +91,7 @@ Assumptions that might not hold:
 ## Critical Concerns (Could cause outage/data loss)
 
 ### Concern 1: [Title]
+- **Severity**: Critical
 - **Scenario**: [Specific situation that causes the problem]
 - **Likelihood**: [High/Medium/Low] - [Why]
 - **Impact**: [What happens if this occurs]
@@ -102,14 +103,20 @@ Assumptions that might not hold:
 
 ## High Concerns (Could cause significant issues)
 
+### Concern 1: [Title]
+- **Severity**: High
 [Same structure...]
 
 ## Medium Concerns (Could cause user-facing problems)
 
+### Concern 1: [Title]
+- **Severity**: Medium
 [Same structure...]
 
 ## Low Concerns (Edge cases worth noting)
 
+### Concern 1: [Title]
+- **Severity**: Low
 [Same structure...]
 
 ## Questions I Can't Answer

@@ -15,10 +15,10 @@
     "autonomous"
   ],
   "commands": [
-    "commands/workflow.md",
-    "commands/workflow-config.md",
-    "commands/workflow-status.md",
-    "commands/workflow-resume.md"
+    "commands/crew.md",
+    "commands/crew-config.md",
+    "commands/crew-status.md",
+    "commands/crew-resume.md"
   ],
   "agents": [
     "agents/architect.md",

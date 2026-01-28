@@ -341,7 +341,7 @@ If `gemini_research.enabled` is true in configuration:
 2. Verify `gemini` CLI is available: `which gemini`
 3. If either missing and `fallback_to_opus: true`:
    - Log warning and skip to Step 4
-   - Set `state.yaml` → `context_preparation.status: skipped`
+   - Set `state.json` → `context_preparation.status: skipped`
 4. If either missing and `fallback_to_opus: false`:
    - Stop workflow with error message
 
@@ -428,46 +428,50 @@ The analysis_prompt is loaded from `gemini_research.analysis_prompt` and include
 
 #### 3.5.6: Update State
 
-Add to `.tasks/TASK_XXX/state.yaml`:
+Add to `.tasks/TASK_XXX/state.json`:
 
-```yaml
-context_preparation:
-  status: complete              # pending | complete | failed | skipped
-  started_at: 2024-01-15T10:31:00Z
-  completed_at: 2024-01-15T10:33:00Z
-
-  file_discovery:
-    total_files: 47
-    categories:
-      core: 5
-      base_classes: 3
-      referenced: 12
-      examples: 8
-      docs: 4
-
-  repomix:
-    status: success             # success | failed | skipped
-    config_path: .tasks/TASK_XXX/repomix-context.json
-    output_path: .tasks/TASK_XXX/repomix-output.txt
-    files_included: 47
-    output_size_kb: 850
-
-  gemini:
-    status: success             # success | failed | timeout | skipped
-    analysis_path: .tasks/TASK_XXX/gemini-analysis.md
-    analysis_time_seconds: 45
-    sections_generated:
-      - architectural_context
-      - implementation_patterns
-      - review_checklist
-      - failure_modes
-      - documentation_context
-
-  fallbacks_used:
-    repomix: false
-    gemini: false
-
-  errors: []
+```json
+{
+  "context_preparation": {
+    "status": "complete",
+    "started_at": "2024-01-15T10:31:00Z",
+    "completed_at": "2024-01-15T10:33:00Z",
+    "file_discovery": {
+      "total_files": 47,
+      "categories": {
+        "core": 5,
+        "base_classes": 3,
+        "referenced": 12,
+        "examples": 8,
+        "docs": 4
+      }
+    },
+    "repomix": {
+      "status": "success",
+      "config_path": ".tasks/TASK_XXX/repomix-context.json",
+      "output_path": ".tasks/TASK_XXX/repomix-output.txt",
+      "files_included": 47,
+      "output_size_kb": 850
+    },
+    "gemini": {
+      "status": "success",
+      "analysis_path": ".tasks/TASK_XXX/gemini-analysis.md",
+      "analysis_time_seconds": 45,
+      "sections_generated": [
+        "architectural_context",
+        "implementation_patterns",
+        "review_checklist",
+        "failure_modes",
+        "documentation_context"
+      ]
+    },
+    "fallbacks_used": {
+      "repomix": false,
+      "gemini": false
+    },
+    "errors": []
+  }
+}
 ```
 
 #### 3.5.7: Error Handling
@@ -476,7 +480,7 @@ context_preparation:
 - Log error to `.tasks/TASK_XXX/errors.log`
 - If `error_handling.repomix_unavailable: fallback`:
   - Use direct file reading (top 10 most relevant files)
-  - Set `state.yaml` → `fallbacks_used.repomix: true`
+  - Set `state.json` → `fallbacks_used.repomix: true`
 - If `error_handling.repomix_unavailable: fail`:
   - Stop workflow with error
 
@@ -485,7 +489,7 @@ context_preparation:
 - If `error_handling.gemini_unavailable: fallback`:
   - Skip Gemini analysis
   - Pass repomix output directly to Opus agents (original behavior)
-  - Set `state.yaml` → `fallbacks_used.gemini: true`
+  - Set `state.json` → `fallbacks_used.gemini: true`
 - If `error_handling.gemini_unavailable: fail`:
   - Stop workflow with error
 

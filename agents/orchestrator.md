@@ -47,22 +47,20 @@ For each checkbox in TASK_XXX.md:
 
 ## State Management
 
-Create and maintain state in `.tasks/TASK_XXX/state.yaml`:
+Create and maintain state in `.tasks/TASK_XXX/state.json`:
 
-```yaml
-task_id: TASK_042
-task_name: "auth-jwt"
-description: "Add user authentication with JWT"
-created_at: 2024-01-15T10:30:00Z
-current_phase: planning  # planning | implementation | feedback | complete
-current_agent: architect  # which agent is active
-iteration: 1
-progress:
-  total_steps: 0
-  completed_steps: 0
-  percentage: 0
-last_checkpoint: null
-human_decisions: []
+```json
+{
+  "task_id": "TASK_042",
+  "description": "Add user authentication with JWT",
+  "phase": "architect",
+  "phases_completed": [],
+  "review_issues": [],
+  "iteration": 1,
+  "docs_needed": [],
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T10:30:00Z"
+}
 ```
 
 ## Decision Logic
@@ -106,7 +104,7 @@ Before spawning any agent:
 
 2. **Check for Gemini analysis**:
    - Look for `.tasks/TASK_XXX/gemini-analysis.md`
-   - Check `state.yaml` → `context_preparation.status`
+   - Check `state.json` → `context_preparation.status`
    - If `status: complete` and `gemini.analysis_path` exists, use Gemini analysis
 
 ### Spawning Research Agents (with Gemini Analysis)
@@ -157,7 +155,7 @@ For agents in `gemini_research.implementation_agents` list (implementer, feedbac
 Implementation agents don't need Gemini analysis - they work with:
 - The approved implementation plan (`plan.md`)
 - Specific files for the current step
-- Progress tracking from state.yaml
+- Progress tracking from state.json
 
 **Keep existing spawning behavior** for these agents (no changes needed).
 
@@ -169,7 +167,7 @@ If `gemini-analysis.md` does NOT exist (either skipped or failed):
 2. **Fall back to original behavior**:
    - Pass repomix output or key files directly to agent
    - Use the traditional context injection pattern
-3. **Update state**: Set `state.yaml` → `context_preparation.fallback_used: true`
+3. **Update state**: Set `state.json` → `context_preparation.fallback_used: true`
 
 ### Section Extraction Example
 
@@ -215,7 +213,7 @@ def extract_section(agent_type, gemini_analysis_path):
 - Agent can find relevant section themselves
 
 **If gemini-analysis.md is malformed**:
-- Check `state.yaml` → `context_preparation.gemini.status`
+- Check `state.json` → `context_preparation.gemini.status`
 - If `status: failed`, use fallback behavior
 - If `status: success` but file malformed, log error and use fallback
 

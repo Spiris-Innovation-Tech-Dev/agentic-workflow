@@ -90,6 +90,36 @@ DEFAULT_CONFIG = {
 }
 
 
+def _get_valid_keys(defaults: dict, prefix: str = "") -> set[str]:
+    """Recursively collect all valid keys from defaults."""
+    keys = set()
+    for key, value in defaults.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        keys.add(full_key)
+        if isinstance(value, dict):
+            keys.update(_get_valid_keys(value, full_key))
+    return keys
+
+
+def _validate_config(config: dict, defaults: dict, prefix: str = "") -> list[str]:
+    """Validate config against defaults, returning warnings for unknown keys."""
+    warnings = []
+    for key, value in config.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        if key not in defaults:
+            warnings.append(f"Unknown config key: '{full_key}'")
+        elif isinstance(value, dict) and isinstance(defaults.get(key), dict):
+            warnings.extend(_validate_config(value, defaults[key], full_key))
+        elif value is not None:
+            expected_type = type(defaults.get(key))
+            if expected_type is not type(None) and not isinstance(value, expected_type):
+                if not (expected_type == int and isinstance(value, bool)):
+                    warnings.append(
+                        f"Invalid type for '{full_key}': expected {expected_type.__name__}, got {type(value).__name__}"
+                    )
+    return warnings
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     result = base.copy()
     for key, value in override.items():
@@ -152,21 +182,25 @@ def config_get_effective(
     project_dir: Optional[str] = None
 ) -> dict[str, Any]:
     config = DEFAULT_CONFIG.copy()
+    warnings = []
 
     global_path = _get_global_config_path()
     global_config = _load_yaml(global_path)
     if global_config:
+        warnings.extend(_validate_config(global_config, DEFAULT_CONFIG))
         config = _deep_merge(config, global_config)
 
     project_path = _get_project_config_path(project_dir)
     project_config = _load_yaml(project_path)
     if project_config:
+        warnings.extend(_validate_config(project_config, DEFAULT_CONFIG))
         config = _deep_merge(config, project_config)
 
     if task_id:
         task_path = _get_task_config_path(task_id, project_dir)
         task_config = _load_yaml(task_path)
         if task_config:
+            warnings.extend(_validate_config(task_config, DEFAULT_CONFIG))
             config = _deep_merge(config, task_config)
 
     sources = []
@@ -182,6 +216,7 @@ def config_get_effective(
     return {
         "config": config,
         "sources": sources,
+        "warnings": warnings,
         "has_global": global_config is not None,
         "has_project": project_config is not None,
         "has_task": task_id is not None and _get_task_config_path(task_id, project_dir).exists()

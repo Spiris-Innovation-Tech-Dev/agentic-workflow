@@ -68,6 +68,17 @@ class WorkflowState:
             "review_issues": [],
             "iteration": 1,
             "docs_needed": [],
+            "implementation_progress": {
+                "total_steps": 0,
+                "current_step": 0,
+                "steps_completed": []
+            },
+            "human_decisions": [],
+            "knowledge_base_inventory": {
+                "path": None,
+                "files": []
+            },
+            "concerns": [],
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
@@ -219,6 +230,82 @@ class WorkflowState:
         existing.update(files)
         self._state["docs_needed"] = list(existing)
         self._save_state()
+
+    def set_implementation_progress(self, total_steps: int, current_step: int = 0) -> None:
+        """Set total implementation steps and optionally current step."""
+        if "implementation_progress" not in self._state:
+            self._state["implementation_progress"] = {
+                "total_steps": 0,
+                "current_step": 0,
+                "steps_completed": []
+            }
+        self._state["implementation_progress"]["total_steps"] = total_steps
+        self._state["implementation_progress"]["current_step"] = current_step
+        self._save_state()
+
+    def complete_implementation_step(self, step_id: str) -> None:
+        """Mark an implementation step as completed."""
+        if "implementation_progress" not in self._state:
+            self._state["implementation_progress"] = {
+                "total_steps": 0,
+                "current_step": 0,
+                "steps_completed": []
+            }
+        progress = self._state["implementation_progress"]
+        if step_id not in progress["steps_completed"]:
+            progress["steps_completed"].append(step_id)
+        progress["current_step"] = len(progress["steps_completed"])
+        self._save_state()
+
+    def add_human_decision(self, checkpoint: str, decision: str, notes: str = "") -> None:
+        """Record a human decision at a checkpoint."""
+        if "human_decisions" not in self._state:
+            self._state["human_decisions"] = []
+        self._state["human_decisions"].append({
+            "checkpoint": checkpoint,
+            "decision": decision,
+            "notes": notes,
+            "timestamp": datetime.now().isoformat()
+        })
+        self._save_state()
+
+    def set_knowledge_base_inventory(self, path: str, files: list) -> None:
+        """Store knowledge base path and file inventory."""
+        self._state["knowledge_base_inventory"] = {
+            "path": path,
+            "files": files
+        }
+        self._save_state()
+
+    def add_concern(self, source: str, severity: str, description: str,
+                    concern_id: Optional[str] = None) -> str:
+        """Add a concern from an agent. Returns the concern ID."""
+        if "concerns" not in self._state:
+            self._state["concerns"] = []
+        if concern_id is None:
+            concern_id = f"C{len(self._state['concerns']) + 1:03d}"
+        self._state["concerns"].append({
+            "id": concern_id,
+            "source": source,
+            "severity": severity,
+            "description": description,
+            "addressed_by": [],
+            "created_at": datetime.now().isoformat()
+        })
+        self._save_state()
+        return concern_id
+
+    def address_concern(self, concern_id: str, addressed_by: str) -> bool:
+        """Mark a concern as addressed by a step or action."""
+        if "concerns" not in self._state:
+            return False
+        for concern in self._state["concerns"]:
+            if concern["id"] == concern_id:
+                if addressed_by not in concern["addressed_by"]:
+                    concern["addressed_by"].append(addressed_by)
+                self._save_state()
+                return True
+        return False
 
     def is_complete(self) -> tuple[bool, Optional[str]]:
         """

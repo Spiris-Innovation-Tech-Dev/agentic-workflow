@@ -67,9 +67,10 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 ## Summary
 [1-2 sentences: Is this plan ready for implementation or does it need work?]
 
-## Critical Issues (Must Fix)
+## Critical Issues (Must Fix Before Proceeding)
 
 ### Issue 1: [Title]
+- **Severity**: Critical
 - **Location**: Step 2.3
 - **Problem**: [What's wrong]
 - **Impact**: [Why this matters]
@@ -78,14 +79,22 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 ### Issue 2: [Title]
 [Same structure...]
 
-## Important Issues (Should Fix)
+## High Issues (Should Fix)
 
 ### Issue 1: [Title]
+- **Severity**: High
 [Same structure...]
 
-## Minor Issues (Nice to Fix)
+## Medium Issues (Consider Fixing)
 
 ### Issue 1: [Title]
+- **Severity**: Medium
+[Same structure...]
+
+## Low Issues (Nice to Fix)
+
+### Issue 1: [Title]
+- **Severity**: Low
 [Same structure...]
 
 ## Verification Results
@@ -133,7 +142,7 @@ Think like a senior engineer doing a thorough PR review, but for a plan instead 
 2. **Be constructive** - Include suggested fixes, not just problems
 3. **Be thorough** - Check every code example, every path
 4. **Be honest** - Don't say "looks good" unless you've verified everything
-5. **Prioritize** - Critical vs Important vs Minor
+5. **Prioritize** - Critical vs High vs Medium vs Low
 
 ## What You Don't Do
 

@@ -36,6 +36,13 @@ from .state_tools import (
     workflow_can_stop,
     list_tasks,
     get_active_task,
+    workflow_set_implementation_progress,
+    workflow_complete_step,
+    workflow_add_human_decision,
+    workflow_set_kb_inventory,
+    workflow_add_concern,
+    workflow_address_concern,
+    workflow_get_concerns,
 )
 from .config_tools import (
     config_get_effective,
@@ -252,6 +259,168 @@ TOOLS = [
             "required": ["checkpoint", "category"]
         }
     ),
+    Tool(
+        name="workflow_set_implementation_progress",
+        description="Set the total number of implementation steps and optionally current step.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "total_steps": {
+                    "type": "integer",
+                    "description": "Total number of implementation steps"
+                },
+                "current_step": {
+                    "type": "integer",
+                    "description": "Current step number (0-indexed)"
+                }
+            },
+            "required": ["total_steps"]
+        }
+    ),
+    Tool(
+        name="workflow_complete_step",
+        description="Mark an implementation step as completed.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "step_id": {
+                    "type": "string",
+                    "description": "Step identifier (e.g., '1.1', '2.3')"
+                }
+            },
+            "required": ["step_id"]
+        }
+    ),
+    Tool(
+        name="workflow_add_human_decision",
+        description="Record a human decision at a checkpoint for audit trail.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "checkpoint": {
+                    "type": "string",
+                    "description": "Checkpoint name (e.g., 'after_architect', 'before_commit')"
+                },
+                "decision": {
+                    "type": "string",
+                    "description": "Decision made",
+                    "enum": ["approve", "revise", "restart", "skip"]
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional notes about the decision"
+                }
+            },
+            "required": ["checkpoint", "decision"]
+        }
+    ),
+    Tool(
+        name="workflow_set_kb_inventory",
+        description="Store knowledge base path and file inventory in state.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Path to knowledge base directory"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of files in the knowledge base"
+                }
+            },
+            "required": ["path", "files"]
+        }
+    ),
+    Tool(
+        name="workflow_add_concern",
+        description="Add a concern from an agent (Architect, Reviewer, Skeptic) for cross-agent tracking.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Agent that raised the concern",
+                    "enum": ["architect", "developer", "reviewer", "skeptic", "feedback"]
+                },
+                "severity": {
+                    "type": "string",
+                    "description": "Severity level",
+                    "enum": ["critical", "high", "medium", "low"]
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of the concern"
+                },
+                "concern_id": {
+                    "type": "string",
+                    "description": "Optional custom ID. If not provided, auto-generates."
+                }
+            },
+            "required": ["source", "severity", "description"]
+        }
+    ),
+    Tool(
+        name="workflow_address_concern",
+        description="Mark a concern as addressed by a step or action.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "concern_id": {
+                    "type": "string",
+                    "description": "ID of the concern to address"
+                },
+                "addressed_by": {
+                    "type": "string",
+                    "description": "Step or action that addresses the concern (e.g., 'step 2.3')"
+                }
+            },
+            "required": ["concern_id", "addressed_by"]
+        }
+    ),
+    Tool(
+        name="workflow_get_concerns",
+        description="Get all concerns, optionally filtering to unaddressed only.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "unaddressed_only": {
+                    "type": "boolean",
+                    "description": "If true, only return unaddressed concerns"
+                }
+            },
+            "required": []
+        }
+    ),
 ]
 
 
@@ -309,6 +478,49 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 checkpoint=arguments["checkpoint"],
                 category=arguments["category"],
                 task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_set_implementation_progress":
+            result = workflow_set_implementation_progress(
+                total_steps=arguments["total_steps"],
+                current_step=arguments.get("current_step", 0),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_complete_step":
+            result = workflow_complete_step(
+                step_id=arguments["step_id"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_add_human_decision":
+            result = workflow_add_human_decision(
+                checkpoint=arguments["checkpoint"],
+                decision=arguments["decision"],
+                notes=arguments.get("notes", ""),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_set_kb_inventory":
+            result = workflow_set_kb_inventory(
+                path=arguments["path"],
+                files=arguments["files"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_add_concern":
+            result = workflow_add_concern(
+                source=arguments["source"],
+                severity=arguments["severity"],
+                description=arguments["description"],
+                concern_id=arguments.get("concern_id"),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_address_concern":
+            result = workflow_address_concern(
+                concern_id=arguments["concern_id"],
+                addressed_by=arguments["addressed_by"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_concerns":
+            result = workflow_get_concerns(
+                task_id=arguments.get("task_id"),
+                unaddressed_only=arguments.get("unaddressed_only", False)
             )
         else:
             result = {"error": f"Unknown tool: {name}"}

@@ -8,7 +8,7 @@ List all task directories in `.tasks/` and summarize their state.
 
 ### For Each Task
 
-Read `.tasks/TASK_XXX/state.yaml` and display:
+Read `.tasks/TASK_XXX/state.json` and display:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
