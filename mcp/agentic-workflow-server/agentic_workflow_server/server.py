@@ -43,10 +43,24 @@ from .state_tools import (
     workflow_add_concern,
     workflow_address_concern,
     workflow_get_concerns,
+    workflow_save_discovery,
+    workflow_get_discoveries,
+    workflow_flush_context,
+    workflow_get_context_usage,
+    workflow_prune_old_outputs,
+    workflow_search_memories,
+    workflow_link_tasks,
+    workflow_get_linked_tasks,
+    workflow_record_model_error,
+    workflow_record_model_success,
+    workflow_get_available_model,
+    workflow_get_resilience_status,
+    workflow_clear_model_cooldown,
 )
 from .config_tools import (
     config_get_effective,
     config_get_checkpoint,
+    config_get_beads,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -260,6 +274,24 @@ TOOLS = [
         }
     ),
     Tool(
+        name="config_get_beads",
+        description="Get beads configuration with auto-detection. If enabled is 'auto', checks if beads is installed and initialized.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier for task-level config override"
+                },
+                "project_dir": {
+                    "type": "string",
+                    "description": "Project directory. Defaults to current directory."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
         name="workflow_set_implementation_progress",
         description="Set the total number of implementation steps and optionally current step.",
         inputSchema={
@@ -421,6 +453,246 @@ TOOLS = [
             "required": []
         }
     ),
+    Tool(
+        name="workflow_save_discovery",
+        description="Save a discovery (decision, pattern, gotcha, blocker, preference) to persistent memory. Use this to preserve critical learnings that should survive context compaction.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Type of discovery",
+                    "enum": ["decision", "pattern", "gotcha", "blocker", "preference"]
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The discovery content to save"
+                }
+            },
+            "required": ["category", "content"]
+        }
+    ),
+    Tool(
+        name="workflow_get_discoveries",
+        description="Retrieve saved discoveries from persistent memory, optionally filtered by category.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Filter to specific category",
+                    "enum": ["decision", "pattern", "gotcha", "blocker", "preference"]
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_flush_context",
+        description="Return all discoveries for the task, grouped by category. Use before context compaction to capture what should be reloaded.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_get_context_usage",
+        description="Estimate context usage for the task based on files in the task directory. Returns file sizes, token estimates, and recommendations for managing context pressure.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_prune_old_outputs",
+        description="Prune old, large tool outputs to reduce context pressure. Creates summaries of pruned files and removes originals. Use when context usage is high.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "keep_last_n": {
+                    "type": "integer",
+                    "description": "Number of recent outputs to keep intact (default: 5)",
+                    "default": 5
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_search_memories",
+        description="Search across task memories using keyword matching. Find patterns, decisions, and gotchas from previous tasks to avoid re-learning.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (case-insensitive keyword matching)"
+                },
+                "task_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of task IDs to search. If not provided, searches all tasks."
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional category filter",
+                    "enum": ["decision", "pattern", "gotcha", "blocker", "preference"]
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 20)",
+                    "default": 20
+                }
+            },
+            "required": ["query"]
+        }
+    ),
+    Tool(
+        name="workflow_link_tasks",
+        description="Link related tasks for context inheritance. Creates bidirectional links so agents can reference prior related work.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task to add links to"
+                },
+                "related_task_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of related task IDs to link"
+                },
+                "relationship": {
+                    "type": "string",
+                    "description": "Type of relationship",
+                    "enum": ["related", "builds_on", "supersedes", "blocked_by"],
+                    "default": "related"
+                }
+            },
+            "required": ["task_id", "related_task_ids"]
+        }
+    ),
+    Tool(
+        name="workflow_get_linked_tasks",
+        description="Get all tasks linked to the specified task, optionally including their recent discoveries.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "include_memories": {
+                    "type": "boolean",
+                    "description": "If true, include recent discoveries from linked tasks",
+                    "default": False
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_record_model_error",
+        description="Record a model API error for cooldown tracking. Enables intelligent failover with exponential backoff.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "Model identifier (e.g., 'claude-opus-4', 'claude-sonnet-4', 'gemini')"
+                },
+                "error_type": {
+                    "type": "string",
+                    "description": "Type of error encountered",
+                    "enum": ["rate_limit", "overloaded", "timeout", "server_error", "billing", "auth", "unknown"]
+                },
+                "error_message": {
+                    "type": "string",
+                    "description": "Optional error message for debugging"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task context"
+                }
+            },
+            "required": ["model", "error_type"]
+        }
+    ),
+    Tool(
+        name="workflow_record_model_success",
+        description="Record a successful model call, resetting consecutive error count and cooldown.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "Model identifier"
+                }
+            },
+            "required": ["model"]
+        }
+    ),
+    Tool(
+        name="workflow_get_available_model",
+        description="Get the next available model considering cooldowns. Returns the first model in the fallback chain not in cooldown.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "preferred_model": {
+                    "type": "string",
+                    "description": "Optional preferred model to try first before fallback chain"
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_get_resilience_status",
+        description="Get current resilience status for all models including cooldowns, error counts, and health overview.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_clear_model_cooldown",
+        description="Manually clear a model's cooldown state. Use when you know a model has recovered.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "Model identifier to clear cooldown for"
+                }
+            },
+            "required": ["model"]
+        }
+    ),
 ]
 
 
@@ -479,6 +751,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 category=arguments["category"],
                 task_id=arguments.get("task_id")
             )
+        elif name == "config_get_beads":
+            result = config_get_beads(
+                task_id=arguments.get("task_id"),
+                project_dir=arguments.get("project_dir")
+            )
         elif name == "workflow_set_implementation_progress":
             result = workflow_set_implementation_progress(
                 total_steps=arguments["total_steps"],
@@ -521,6 +798,69 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = workflow_get_concerns(
                 task_id=arguments.get("task_id"),
                 unaddressed_only=arguments.get("unaddressed_only", False)
+            )
+        elif name == "workflow_save_discovery":
+            result = workflow_save_discovery(
+                category=arguments["category"],
+                content=arguments["content"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_discoveries":
+            result = workflow_get_discoveries(
+                category=arguments.get("category"),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_flush_context":
+            result = workflow_flush_context(
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_context_usage":
+            result = workflow_get_context_usage(
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_prune_old_outputs":
+            result = workflow_prune_old_outputs(
+                keep_last_n=arguments.get("keep_last_n", 5),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_search_memories":
+            result = workflow_search_memories(
+                query=arguments["query"],
+                task_ids=arguments.get("task_ids"),
+                category=arguments.get("category"),
+                max_results=arguments.get("max_results", 20)
+            )
+        elif name == "workflow_link_tasks":
+            result = workflow_link_tasks(
+                task_id=arguments["task_id"],
+                related_task_ids=arguments["related_task_ids"],
+                relationship=arguments.get("relationship", "related")
+            )
+        elif name == "workflow_get_linked_tasks":
+            result = workflow_get_linked_tasks(
+                task_id=arguments.get("task_id"),
+                include_memories=arguments.get("include_memories", False)
+            )
+        elif name == "workflow_record_model_error":
+            result = workflow_record_model_error(
+                model=arguments["model"],
+                error_type=arguments["error_type"],
+                error_message=arguments.get("error_message", ""),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_record_model_success":
+            result = workflow_record_model_success(
+                model=arguments["model"]
+            )
+        elif name == "workflow_get_available_model":
+            result = workflow_get_available_model(
+                preferred_model=arguments.get("preferred_model")
+            )
+        elif name == "workflow_get_resilience_status":
+            result = workflow_get_resilience_status()
+        elif name == "workflow_clear_model_cooldown":
+            result = workflow_clear_model_cooldown(
+                model=arguments["model"]
             )
         else:
             result = {"error": f"Unknown tool: {name}"}

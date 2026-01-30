@@ -456,6 +456,7 @@ auto_actions:
   run_build: true
   git_add: false               # Require approval
   git_commit: false            # Require approval
+  git_push: false              # Require approval
 ```
 
 ## State Management

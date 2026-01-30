@@ -64,6 +64,7 @@ auto_actions:
   run_build: true              # Agents can run build commands
   git_add: false               # Require approval for staging
   git_commit: false            # Require approval for commits
+  git_push: false              # Require approval for pushing
 
 # Repomix integration
 repomix:
@@ -196,8 +197,97 @@ loop_mode:
 # Beads Integration (optional)
 # Link workflow tasks to beads issues for persistent tracking
 beads:
-  enabled: false                    # Set to true to enable beads integration
+  enabled: auto                     # auto = enable if beads is installed, true/false to force
   auto_create_issue: false          # Create beads issue when starting workflow
   auto_link: true                   # Link task to existing issue if mentioned
   sync_status: true                 # Update beads issue status as workflow progresses
   add_comments: true                # Add workflow progress as beads comments
+
+# Model Resilience Configuration
+# Handles API failures with exponential backoff and automatic failover
+resilience:
+  enabled: true                     # Master switch for resilience features
+
+  # Retry configuration
+  retry:
+    max_attempts: 3                 # Max retries before failing over
+    backoff_seconds: [60, 300, 1500]  # Exponential backoff: 1m, 5m, 25m
+
+  # Fallback chain - models tried in order when primary fails
+  fallback_chain:
+    - model: claude-opus-4
+      timeout: 120                  # Seconds before timeout
+    - model: claude-sonnet-4
+      timeout: 60
+    - model: gemini
+      timeout: 60
+
+  # Cooldown durations by error type
+  cooldown:
+    rate_limit_seconds: 60          # 429 errors - start with 1 minute
+    overloaded_seconds: 60          # 529 errors - API overloaded
+    error_seconds: 300              # General errors - 5 minutes
+    billing_seconds: 18000          # Billing/quota issues - 5 hours
+    max_cooldown_seconds: 3600      # Cap for exponential backoff - 1 hour
+
+  # Automatic recovery
+  recovery:
+    reset_on_success: true          # Reset consecutive errors after success
+    clear_cooldown_on_success: true # Clear cooldown immediately on success
+
+# Context Management
+# Tools for managing context pressure during long workflows
+context_management:
+  # Thresholds for recommendations
+  thresholds:
+    low_percent: 30                 # Below this: no action needed
+    moderate_percent: 60            # Above this: consider saving discoveries
+    high_percent: 80                # Above this: recommend pruning
+    critical_percent: 95            # Above this: prune aggressively
+
+  # Auto-pruning settings
+  auto_prune:
+    enabled: false                  # Auto-prune when context is high
+    trigger_percent: 80             # Trigger auto-prune at this threshold
+    keep_last_n: 5                  # Keep N most recent prunable files
+
+  # Files safe to prune (large verbose outputs)
+  prunable_patterns:
+    - "repomix-output.txt"
+    - "gemini-analysis.md"
+    - "*.log"
+
+  # Files that should never be pruned
+  preserve_patterns:
+    - "state.json"
+    - "plan.md"
+    - "config.yaml"
+    - "task.md"
+    - "architect.md"
+    - "developer.md"
+    - "reviewer.md"
+    - "skeptic.md"
+
+# Cross-Task Memory
+# Enable learning from previous tasks
+memory:
+  enabled: true
+  # Discovery categories
+  categories:
+    - decision                      # Architectural/planning decisions
+    - pattern                       # Code patterns discovered
+    - gotcha                        # Edge cases, quirks, non-obvious things
+    - blocker                       # Issues that blocked progress
+    - preference                    # User/project preferences
+
+  # Cross-task search
+  search:
+    max_results: 20                 # Default max search results
+    include_completed_tasks: true   # Search completed tasks too
+
+  # Task linking
+  relationships:
+    - related                       # General relationship
+    - builds_on                     # This task extends another
+    - supersedes                    # This task replaces another
+    - blocked_by                    # This task depends on another

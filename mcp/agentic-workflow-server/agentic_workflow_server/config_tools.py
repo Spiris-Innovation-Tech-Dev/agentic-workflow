@@ -10,6 +10,7 @@ Each level overrides the previous.
 """
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -65,7 +66,8 @@ DEFAULT_CONFIG = {
         "modify_files": True,
         "run_build": True,
         "git_add": False,
-        "git_commit": False
+        "git_commit": False,
+        "git_push": False
     },
     "loop_mode": {
         "enabled": False,
@@ -313,5 +315,74 @@ def config_get_loop_mode(
         "phases": loop_mode.get("phases", {}),
         "max_iterations": loop_mode.get("max_iterations", {}),
         "verification": loop_mode.get("verification", {}),
+        "sources": effective["sources"]
+    }
+
+
+def _is_beads_installed() -> bool:
+    """Check if beads is installed and available."""
+    # Check for beads CLI
+    if shutil.which("beads") or shutil.which("bd"):
+        return True
+
+    # Check for beads-mcp in PATH
+    if shutil.which("beads-mcp"):
+        return True
+
+    # Check for .beads directory in current project (beads is initialized)
+    if (Path.cwd() / ".beads").exists():
+        return True
+
+    return False
+
+
+def _is_beads_initialized() -> bool:
+    """Check if beads is initialized in the current project."""
+    return (Path.cwd() / ".beads").exists()
+
+
+def config_get_beads(
+    task_id: Optional[str] = None,
+    project_dir: Optional[str] = None
+) -> dict[str, Any]:
+    """Get beads configuration with auto-detection support.
+
+    If beads.enabled is set to "auto", will check if beads is installed
+    and initialized in the current project.
+
+    Returns:
+        Beads configuration with resolved enabled status
+    """
+    effective = config_get_effective(task_id, project_dir)
+    config = effective["config"]
+
+    beads_config = config.get("beads", {})
+    enabled_setting = beads_config.get("enabled", False)
+
+    # Handle auto-detection
+    if enabled_setting == "auto":
+        beads_installed = _is_beads_installed()
+        beads_initialized = _is_beads_initialized()
+        enabled = beads_installed and beads_initialized
+        detection_info = {
+            "mode": "auto",
+            "beads_installed": beads_installed,
+            "beads_initialized": beads_initialized,
+            "resolved_to": enabled
+        }
+    else:
+        enabled = bool(enabled_setting)
+        detection_info = {
+            "mode": "manual",
+            "configured_value": enabled_setting
+        }
+
+    return {
+        "enabled": enabled,
+        "auto_create_issue": beads_config.get("auto_create_issue", False),
+        "auto_link": beads_config.get("auto_link", True),
+        "sync_status": beads_config.get("sync_status", True),
+        "add_comments": beads_config.get("add_comments", True),
+        "detection": detection_info,
         "sources": effective["sources"]
     }

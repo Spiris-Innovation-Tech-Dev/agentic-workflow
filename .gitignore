@@ -3,3 +3,6 @@ __pycache__/
 
 # Claude Code local settings (personal overrides)
 .claude/settings.local.json
+
+# Workflow task directories (runtime state)
+.tasks/
