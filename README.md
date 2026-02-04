@@ -501,6 +501,38 @@ All workflow state is stored in `.tasks/TASK_XXX/`:
 }
 ```
 
+### Memory Preservation
+
+Agents can save discoveries to persistent memory that survives context compaction:
+
+```
+.tasks/
+└── TASK_001_jwt-authentication/
+    └── memory/
+        └── discoveries.jsonl    # Agent learnings in JSONL format
+```
+
+**MCP Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `workflow_save_discovery` | Save a learning to memory |
+| `workflow_get_discoveries` | Retrieve saved learnings |
+| `workflow_flush_context` | Get all learnings grouped by category (for context reload) |
+| `workflow_search_memories` | Search learnings across multiple tasks |
+
+**Discovery Categories:**
+
+| Category | Use For |
+|----------|---------|
+| `decision` | Human decisions, architectural choices, trade-offs made |
+| `pattern` | Code patterns, conventions, "how we do X here" |
+| `gotcha` | Non-obvious issues, surprising behaviors, things that broke |
+| `blocker` | Unresolved issues requiring human input |
+| `preference` | User preferences discovered during the task |
+
+See [docs/ai-context/memory-preservation.md](docs/ai-context/memory-preservation.md) for detailed usage guidance.
+
 ## Task Files
 
 For complex tasks, create a markdown file:

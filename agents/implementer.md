@@ -45,6 +45,7 @@ Before executing:
 - Run the verification command
 - Check for warning signs
 - Confirm expected behavior
+- **Verify assertions** if defined in the plan (see Assertions section below)
 
 ### 5. MARK Complete and Report
 
@@ -341,3 +342,90 @@ If you notice you've lost context (can't remember why a decision was made):
 1. Call `workflow_flush_context()` to reload all discoveries
 2. Review the discoveries relevant to your current step
 3. Continue implementation with restored context
+
+---
+
+## Assertion Verification
+
+If the Developer's plan includes an Assertions section, register and verify them:
+
+### 1. Register Assertions at Start
+
+For each assertion in the plan:
+```
+workflow_add_assertion(
+    assertion_type="file_exists",
+    definition={"path": "src/auth/middleware.ts", "must_contain": "export const requireAuth"},
+    step_id="1.2"
+)
+```
+
+### 2. Verify After Each Step
+
+After completing a step that has assertions:
+```
+workflow_verify_assertion(assertion_id="A001", result=True, message="File exists and contains required export")
+```
+
+### 3. Check Assertion Status
+
+Before continuing to next step:
+```
+workflow_get_assertions(step_id="1.2")  # Get assertions for this step
+workflow_get_assertions(status="failed")  # Check for any failures
+```
+
+### Assertion Types
+
+| Type | Definition Fields | What to Check |
+|------|-------------------|---------------|
+| `file_exists` | path, must_contain (optional) | File exists, optionally contains string |
+| `test_passes` | command | Run command, check exit code 0 |
+| `no_pattern` | path (glob), pattern (regex) | Pattern NOT found in files |
+| `contains_pattern` | path (glob), pattern (regex) | Pattern IS found in files |
+| `type_check_passes` | command | Type checker succeeds |
+| `lint_passes` | command | Linter succeeds |
+
+### On Assertion Failure
+
+If an assertion fails:
+1. **Stop and analyze** - Don't continue to next step
+2. **Check root cause** - Is it implementation error or assertion error?
+3. **Fix and re-verify** - In loop mode, retry; otherwise report
+
+---
+
+## Error Pattern Matching
+
+When you encounter errors, check for known solutions before spending time debugging:
+
+### 1. Match Error Against Known Patterns
+
+```
+workflow_match_error(error_output="Cannot find module '@/lib/utils'")
+```
+
+Returns matching patterns with solutions, sorted by confidence.
+
+### 2. Apply Suggested Solution
+
+If a high-confidence match is found, try that solution first before debugging from scratch.
+
+### 3. Record New Patterns
+
+After solving a novel error, record it for future tasks:
+```
+workflow_record_error_pattern(
+    error_signature="Cannot find module '@/",
+    error_type="compile",
+    solution="Check tsconfig.json paths - @/ should map to src/",
+    tags=["typescript", "path-alias"]
+)
+```
+
+### When to Record Patterns
+
+- Error took significant time to debug
+- Error is likely to recur in similar projects
+- Solution is non-obvious
+- Error message is misleading about root cause

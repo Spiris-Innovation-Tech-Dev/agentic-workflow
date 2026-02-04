@@ -261,6 +261,51 @@ Save discoveries for future reference:
 
 ---
 
+## Concern Outcome Tracking
+
+Help improve agent accuracy by evaluating whether concerns raised during planning were valid:
+
+### Evaluate Concerns
+
+Review concerns from Reviewer and Skeptic phases:
+```
+workflow_get_concerns()  # Get all concerns from this task
+```
+
+For each concern, assess whether it was valid:
+```
+workflow_record_concern_outcome(
+    concern_id="C001",
+    outcome="valid",  # valid | false_positive | partially_valid
+    notes="Race condition actually occurred during testing - Step 3.2 added debounce"
+)
+
+workflow_record_concern_outcome(
+    concern_id="C002",
+    outcome="false_positive",
+    notes="Predicted memory leak didn't occur - framework handles cleanup"
+)
+```
+
+### Outcome Categories
+
+| Outcome | When to Use |
+|---------|-------------|
+| `valid` | Concern was correct and needed addressing |
+| `false_positive` | Concern didn't materialize, no action needed |
+| `partially_valid` | Concern was directionally correct but details differed |
+
+### Why Track Outcomes
+
+This data helps:
+1. Tune agent prompts to reduce false positives
+2. Identify which concern types are most accurate
+3. Calculate agent precision metrics over time
+
+Use `workflow_get_agent_performance()` to see precision trends.
+
+---
+
 ## Completion Signals
 
 When your analysis is complete, output:

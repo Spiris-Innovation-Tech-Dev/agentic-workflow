@@ -291,3 +291,231 @@ memory:
     - builds_on                     # This task extends another
     - supersedes                    # This task replaces another
     - blocked_by                    # This task depends on another
+
+# Workflow Modes
+# Different modes skip agents for faster execution on simpler tasks
+workflow_modes:
+  # Default mode when --mode not specified
+  default: auto
+
+  # Mode definitions - which phases are included
+  modes:
+    full:
+      description: "All 7 agents - complex features, critical changes"
+      phases:
+        - architect
+        - developer
+        - reviewer
+        - skeptic
+        - implementer
+        - feedback
+        - technical_writer
+      estimated_cost: "$0.50+"
+
+    fast:
+      description: "Skip Skeptic and Feedback - standard changes"
+      phases:
+        - architect
+        - developer
+        - reviewer
+        - implementer
+        - technical_writer
+      estimated_cost: "$0.25"
+
+    minimal:
+      description: "Developer and Implementer only - simple fixes, typos"
+      phases:
+        - developer
+        - implementer
+      estimated_cost: "$0.10"
+
+  # Auto-detection rules for determining mode
+  auto_detection:
+    minimal:
+      # Any of these trigger minimal mode
+      keywords:
+        - typo
+        - fix typo
+        - simple fix
+        - rename
+        - update comment
+        - fix import
+      max_files_affected: 1
+      no_tests_required: true
+
+    fast:
+      # Use fast mode for these patterns
+      keywords:
+        - add feature
+        - implement
+        - update
+        - refactor
+      single_module: true
+      no_security_changes: true
+      no_database_changes: true
+
+    full:
+      # Always use full mode for these
+      keywords:
+        - security
+        - authentication
+        - authorization
+        - database
+        - migration
+        - api
+        - breaking change
+        - critical
+      multiple_systems: true
+      requires_review: true
+
+# Parallelization Configuration
+parallelization:
+  # Run Reviewer and Skeptic in parallel
+  reviewer_skeptic:
+    enabled: true
+    timeout_seconds: 300
+    merge_strategy: deduplicate     # deduplicate | combine | prioritize_reviewer
+
+# Cost Tracking
+cost_tracking:
+  enabled: true
+  # Model costs per million tokens (approximate)
+  model_costs:
+    opus:
+      input_per_million: 15.00
+      output_per_million: 75.00
+    sonnet:
+      input_per_million: 3.00
+      output_per_million: 15.00
+    haiku:
+      input_per_million: 0.25
+      output_per_million: 1.25
+  # Show cost summary at workflow completion
+  show_summary: true
+  # Store cost history
+  store_history: true
+
+# Specialized Agents (optional, auto-triggered)
+specialized_agents:
+  security_auditor:
+    enabled: auto                   # auto | true | false
+    triggers:
+      keywords:
+        - auth
+        - password
+        - token
+        - secret
+        - SQL
+        - encryption
+        - credential
+        - permission
+        - session
+        - cookie
+      file_patterns:
+        - "**/auth/**"
+        - "**/security/**"
+        - "**/.env*"
+        - "**/secrets/**"
+    checkpoint_after: true
+    position: after_reviewer        # Run after reviewer, parallel with skeptic
+
+  performance_analyst:
+    enabled: auto
+    triggers:
+      keywords:
+        - performance
+        - cache
+        - optimize
+        - slow
+        - scale
+        - n+1
+        - query
+      file_patterns:
+        - "**/database/**"
+        - "**/query/**"
+        - "**/cache/**"
+    checkpoint_after: false
+    position: after_reviewer
+
+  api_guardian:
+    enabled: auto
+    triggers:
+      keywords:
+        - API
+        - endpoint
+        - breaking
+        - deprecate
+        - contract
+        - schema
+        - openapi
+        - swagger
+      file_patterns:
+        - "**/api/**"
+        - "**/routes/**"
+        - "**/schemas/**"
+        - "**/openapi*"
+    checkpoint_after: true
+    position: after_developer
+
+  accessibility_reviewer:
+    enabled: auto
+    triggers:
+      keywords:
+        - UI
+        - component
+        - form
+        - a11y
+        - accessibility
+        - WCAG
+        - aria
+      file_patterns:
+        - "**/*.tsx"
+        - "**/*.jsx"
+        - "**/*.vue"
+        - "**/*.html"
+    checkpoint_after: false
+    position: after_reviewer
+
+# Quality Assertions
+quality:
+  assertions:
+    enabled: true
+    # Assertion types available
+    types:
+      - file_exists
+      - test_passes
+      - no_pattern
+      - contains_pattern
+      - type_check_passes
+      - lint_passes
+    # Fail workflow on assertion failure
+    fail_on_assertion_failure: true
+    # Auto-verify assertions after each implementation step
+    auto_verify: true
+
+# Error Pattern Learning
+error_patterns:
+  enabled: true
+  storage_file: ".error_patterns.jsonl"
+  # Auto-match errors to known solutions
+  auto_match: true
+  # Minimum confidence for suggesting a solution
+  min_confidence: 0.7
+  # Record new patterns automatically
+  auto_record: true
+
+# Agent Performance Tracking
+agent_performance:
+  enabled: true
+  # Track concern outcomes
+  track_outcomes: true
+  # Calculate precision over this many days
+  time_range_days: 30
+  # Categories to track
+  categories:
+    - race_condition
+    - missing_validation
+    - security
+    - performance
+    - error_handling
+    - edge_case

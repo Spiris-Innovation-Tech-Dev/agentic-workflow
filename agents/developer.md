@@ -67,6 +67,38 @@ Create a task file with this structure:
   - **Steps**: [How to manually verify]
   - **Expected**: [What you should see]
 
+## Assertions (Machine-Checkable Verification)
+
+Define assertions that can be automatically verified after implementation:
+
+```yaml
+assertions:
+  - type: file_exists
+    path: src/auth/middleware.ts
+    must_contain: "export const requireAuth"
+    step_id: "1.2"
+
+  - type: test_passes
+    command: "npm test -- --grep 'auth'"
+    step_id: "3.1"
+
+  - type: no_pattern
+    path: "src/**/*.ts"
+    pattern: "console\\.log"
+    description: "No console.log in production code"
+
+  - type: contains_pattern
+    path: "src/auth/*.ts"
+    pattern: "throw new UnauthorizedError"
+    description: "Auth errors use UnauthorizedError"
+
+  - type: type_check_passes
+    command: "npm run typecheck"
+    step_id: "final"
+```
+
+The Implementer will use `workflow_add_assertion()` to register these and `workflow_verify_assertion()` to verify them after each step.
+
 ## Rollback Plan
 [How to undo these changes if something goes wrong]
 

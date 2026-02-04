@@ -56,6 +56,31 @@ from .state_tools import (
     workflow_get_available_model,
     workflow_get_resilience_status,
     workflow_clear_model_cooldown,
+    # Workflow modes
+    workflow_detect_mode,
+    workflow_set_mode,
+    workflow_get_mode,
+    workflow_is_phase_in_mode,
+    # Cost tracking
+    workflow_record_cost,
+    workflow_get_cost_summary,
+    # Parallelization
+    workflow_start_parallel_phase,
+    workflow_complete_parallel_phase,
+    workflow_merge_parallel_results,
+    # Assertions
+    workflow_add_assertion,
+    workflow_verify_assertion,
+    workflow_get_assertions,
+    # Error patterns
+    workflow_record_error_pattern,
+    workflow_match_error,
+    # Agent performance
+    workflow_record_concern_outcome,
+    workflow_get_agent_performance,
+    # Optional phases
+    workflow_enable_optional_phase,
+    workflow_get_optional_phases,
 )
 from .config_tools import (
     config_get_effective,
@@ -693,6 +718,406 @@ TOOLS = [
             "required": ["model"]
         }
     ),
+    # Workflow Modes
+    Tool(
+        name="workflow_detect_mode",
+        description="Auto-detect the appropriate workflow mode based on task description. Analyzes keywords and patterns to suggest full, fast, or minimal mode.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_description": {
+                    "type": "string",
+                    "description": "Description of the task to analyze"
+                },
+                "files_affected": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of files that will be affected"
+                }
+            },
+            "required": ["task_description"]
+        }
+    ),
+    Tool(
+        name="workflow_set_mode",
+        description="Set the workflow mode for a task. Mode determines which agents run (full=all 7, fast=skip skeptic/feedback, minimal=dev+impl only).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "description": "Workflow mode",
+                    "enum": ["full", "fast", "minimal", "auto"]
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["mode"]
+        }
+    ),
+    Tool(
+        name="workflow_get_mode",
+        description="Get the current workflow mode for a task.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_is_phase_in_mode",
+        description="Check if a phase is included in the current workflow mode.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "phase": {
+                    "type": "string",
+                    "description": "Phase name to check"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["phase"]
+        }
+    ),
+    # Cost Tracking
+    Tool(
+        name="workflow_record_cost",
+        description="Record token usage and cost for an agent run. Tracks input/output tokens and calculates cost.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "description": "Agent name (architect, developer, etc.)"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Model used (opus, sonnet, haiku)"
+                },
+                "input_tokens": {
+                    "type": "integer",
+                    "description": "Number of input tokens"
+                },
+                "output_tokens": {
+                    "type": "integer",
+                    "description": "Number of output tokens"
+                },
+                "duration_seconds": {
+                    "type": "number",
+                    "description": "Time taken for the run"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["agent", "model", "input_tokens", "output_tokens"]
+        }
+    ),
+    Tool(
+        name="workflow_get_cost_summary",
+        description="Get cost summary for a workflow task with breakdowns by agent and model.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    # Parallelization
+    Tool(
+        name="workflow_start_parallel_phase",
+        description="Start parallel execution of multiple phases (e.g., Reviewer and Skeptic).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "phases": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of phase names to run in parallel"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["phases"]
+        }
+    ),
+    Tool(
+        name="workflow_complete_parallel_phase",
+        description="Mark a parallel phase as complete and store its results.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "phase": {
+                    "type": "string",
+                    "description": "Phase name that completed"
+                },
+                "result_summary": {
+                    "type": "string",
+                    "description": "Summary of the phase's output"
+                },
+                "concerns": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "List of concerns raised by this phase"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["phase"]
+        }
+    ),
+    Tool(
+        name="workflow_merge_parallel_results",
+        description="Merge results from parallel phase execution, deduplicating concerns.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "merge_strategy": {
+                    "type": "string",
+                    "description": "How to merge results",
+                    "enum": ["deduplicate", "combine", "prioritize_first"],
+                    "default": "deduplicate"
+                }
+            },
+            "required": []
+        }
+    ),
+    # Assertions
+    Tool(
+        name="workflow_add_assertion",
+        description="Add an assertion to the workflow for verification. Supports file_exists, test_passes, no_pattern, contains_pattern, type_check_passes, lint_passes.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "assertion_type": {
+                    "type": "string",
+                    "description": "Type of assertion",
+                    "enum": ["file_exists", "test_passes", "no_pattern", "contains_pattern", "type_check_passes", "lint_passes"]
+                },
+                "definition": {
+                    "type": "object",
+                    "description": "Assertion definition (varies by type)"
+                },
+                "step_id": {
+                    "type": "string",
+                    "description": "Optional step this assertion is tied to"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["assertion_type", "definition"]
+        }
+    ),
+    Tool(
+        name="workflow_verify_assertion",
+        description="Record the verification result of an assertion.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "assertion_id": {
+                    "type": "string",
+                    "description": "ID of the assertion to verify"
+                },
+                "result": {
+                    "type": "boolean",
+                    "description": "Whether the assertion passed"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Optional message about the result"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["assertion_id", "result"]
+        }
+    ),
+    Tool(
+        name="workflow_get_assertions",
+        description="Get assertions, optionally filtered by step or status.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "description": "Filter by step ID"
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter by status",
+                    "enum": ["pending", "passed", "failed"]
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    # Error Patterns
+    Tool(
+        name="workflow_record_error_pattern",
+        description="Record an error pattern and its solution for future matching.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "error_signature": {
+                    "type": "string",
+                    "description": "Unique identifying part of the error"
+                },
+                "error_type": {
+                    "type": "string",
+                    "description": "Type of error (compile, runtime, test, etc.)"
+                },
+                "solution": {
+                    "type": "string",
+                    "description": "Description of how to fix this error"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags for categorization"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task where this was discovered"
+                }
+            },
+            "required": ["error_signature", "error_type", "solution"]
+        }
+    ),
+    Tool(
+        name="workflow_match_error",
+        description="Match an error output against known patterns to find solutions.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "error_output": {
+                    "type": "string",
+                    "description": "The error output to match"
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum confidence threshold (0-1)",
+                    "default": 0.5
+                }
+            },
+            "required": ["error_output"]
+        }
+    ),
+    # Agent Performance
+    Tool(
+        name="workflow_record_concern_outcome",
+        description="Record the outcome of a concern (valid, false_positive, partially_valid) for agent performance tracking.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "concern_id": {
+                    "type": "string",
+                    "description": "ID of the concern"
+                },
+                "outcome": {
+                    "type": "string",
+                    "description": "Outcome of the concern",
+                    "enum": ["valid", "false_positive", "partially_valid"]
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional notes about the outcome"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["concern_id", "outcome"]
+        }
+    ),
+    Tool(
+        name="workflow_get_agent_performance",
+        description="Get performance statistics for agents including precision metrics.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "description": "Optional specific agent to get stats for"
+                },
+                "time_range_days": {
+                    "type": "integer",
+                    "description": "Number of days to look back (default: 30)",
+                    "default": 30
+                }
+            },
+            "required": []
+        }
+    ),
+    # Optional Phases
+    Tool(
+        name="workflow_enable_optional_phase",
+        description="Enable an optional specialized phase (security_auditor, performance_analyst, api_guardian, accessibility_reviewer).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "phase": {
+                    "type": "string",
+                    "description": "Phase to enable",
+                    "enum": ["security_auditor", "performance_analyst", "api_guardian", "accessibility_reviewer"]
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this phase is being enabled"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["phase"]
+        }
+    ),
+    Tool(
+        name="workflow_get_optional_phases",
+        description="Get enabled optional phases for a workflow.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
 ]
 
 
@@ -861,6 +1286,117 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "workflow_clear_model_cooldown":
             result = workflow_clear_model_cooldown(
                 model=arguments["model"]
+            )
+        # Workflow Modes
+        elif name == "workflow_detect_mode":
+            result = workflow_detect_mode(
+                task_description=arguments["task_description"],
+                files_affected=arguments.get("files_affected")
+            )
+        elif name == "workflow_set_mode":
+            result = workflow_set_mode(
+                mode=arguments["mode"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_mode":
+            result = workflow_get_mode(
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_is_phase_in_mode":
+            result = workflow_is_phase_in_mode(
+                phase=arguments["phase"],
+                task_id=arguments.get("task_id")
+            )
+        # Cost Tracking
+        elif name == "workflow_record_cost":
+            result = workflow_record_cost(
+                agent=arguments["agent"],
+                model=arguments["model"],
+                input_tokens=arguments["input_tokens"],
+                output_tokens=arguments["output_tokens"],
+                duration_seconds=arguments.get("duration_seconds", 0),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_cost_summary":
+            result = workflow_get_cost_summary(
+                task_id=arguments.get("task_id")
+            )
+        # Parallelization
+        elif name == "workflow_start_parallel_phase":
+            result = workflow_start_parallel_phase(
+                phases=arguments["phases"],
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_complete_parallel_phase":
+            result = workflow_complete_parallel_phase(
+                phase=arguments["phase"],
+                result_summary=arguments.get("result_summary", ""),
+                concerns=arguments.get("concerns"),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_merge_parallel_results":
+            result = workflow_merge_parallel_results(
+                task_id=arguments.get("task_id"),
+                merge_strategy=arguments.get("merge_strategy", "deduplicate")
+            )
+        # Assertions
+        elif name == "workflow_add_assertion":
+            result = workflow_add_assertion(
+                assertion_type=arguments["assertion_type"],
+                definition=arguments["definition"],
+                step_id=arguments.get("step_id"),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_verify_assertion":
+            result = workflow_verify_assertion(
+                assertion_id=arguments["assertion_id"],
+                result=arguments["result"],
+                message=arguments.get("message", ""),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_assertions":
+            result = workflow_get_assertions(
+                step_id=arguments.get("step_id"),
+                status=arguments.get("status"),
+                task_id=arguments.get("task_id")
+            )
+        # Error Patterns
+        elif name == "workflow_record_error_pattern":
+            result = workflow_record_error_pattern(
+                error_signature=arguments["error_signature"],
+                error_type=arguments["error_type"],
+                solution=arguments["solution"],
+                tags=arguments.get("tags"),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_match_error":
+            result = workflow_match_error(
+                error_output=arguments["error_output"],
+                min_confidence=arguments.get("min_confidence", 0.5)
+            )
+        # Agent Performance
+        elif name == "workflow_record_concern_outcome":
+            result = workflow_record_concern_outcome(
+                concern_id=arguments["concern_id"],
+                outcome=arguments["outcome"],
+                notes=arguments.get("notes", ""),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_agent_performance":
+            result = workflow_get_agent_performance(
+                agent=arguments.get("agent"),
+                time_range_days=arguments.get("time_range_days", 30)
+            )
+        # Optional Phases
+        elif name == "workflow_enable_optional_phase":
+            result = workflow_enable_optional_phase(
+                phase=arguments["phase"],
+                reason=arguments.get("reason", ""),
+                task_id=arguments.get("task_id")
+            )
+        elif name == "workflow_get_optional_phases":
+            result = workflow_get_optional_phases(
+                task_id=arguments.get("task_id")
             )
         else:
             result = {"error": f"Unknown tool: {name}"}

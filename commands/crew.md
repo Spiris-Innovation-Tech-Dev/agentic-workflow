@@ -39,14 +39,32 @@ These options override configuration file settings for this task only:
 
 | Option | Description | Example |
 |--------|-------------|---------|
+| `--mode <mode>` | Workflow mode: full\|fast\|minimal\|auto | `--mode fast` |
 | `--loop-mode` | Enable Ralph-style autonomous looping | `--loop-mode` |
 | `--no-loop` | Disable loop mode (even if config enables it) | `--no-loop` |
 | `--max-iterations <n>` | Set max iterations per step | `--max-iterations 20` |
 | `--verify <method>` | Verification method: tests\|build\|lint\|all | `--verify tests` |
 | `--no-checkpoints` | Skip all human checkpoints (autonomous) | `--no-checkpoints` |
+| `--parallel` | Run Reviewer+Skeptic in parallel | `--parallel` |
 | `--beads <issue>` | Link to beads issue | `--beads PROJ-42` |
 | `--config <file>` | Use specific config file | `--config ./my-config.yaml` |
 | `--task <file>` | Read task description from file | `--task ./task.md` |
+
+### Workflow Modes
+
+The `--mode` option controls which agents run:
+
+| Mode | Agents | Use Case | Est. Cost |
+|------|--------|----------|-----------|
+| **full** | All 7 (Arch, Dev, Rev, Skeptic, Impl, Feedback, TW) | Complex features, critical changes | $0.50+ |
+| **fast** | Skip Skeptic and Feedback | Standard changes | $0.25 |
+| **minimal** | Developer and Implementer only | Simple fixes, typos | $0.10 |
+| **auto** | Auto-detect based on task description | Default | varies |
+
+**Auto-detection rules:**
+- `minimal`: Keywords like "typo", "simple fix", "rename"; single file affected
+- `fast`: Standard keywords without security/auth/DB mentions
+- `full`: Security, authentication, database, API, breaking changes
 
 ### Task Description Patterns
 
@@ -121,8 +139,17 @@ Add Redis-based caching to improve API performance.
 ### Examples
 
 ```bash
-# Simple task
-/crew "Add logout button to navbar"
+# Simple task (auto-detects minimal mode)
+/crew "Fix typo in README"
+
+# Explicit minimal mode for simple fixes
+/crew --mode minimal "Rename function foo to bar"
+
+# Fast mode - skip skeptic and feedback
+/crew --mode fast "Add logout button to navbar"
+
+# Full mode for critical changes
+/crew --mode full "Implement user authentication with JWT"
 
 # Loop mode for test fixing
 /crew --loop-mode --verify tests "Fix all failing unit tests"
@@ -132,6 +159,9 @@ Add Redis-based caching to improve API performance.
 
 # From beads issue
 /crew --beads API-42 --loop-mode
+
+# Parallel reviewer+skeptic for faster planning
+/crew --parallel "Add caching layer to API"
 
 # Multi-line inline (just keep typing)
 /crew --loop-mode --no-checkpoints
@@ -272,7 +302,24 @@ When starting a new workflow:
    - Agents should know what documentation is available, not assume specific files exist
 5. Check for repomix config - generate context if available
 
-### Step 2: Load Agent Prompts
+### Step 2: Set Workflow Mode
+
+Determine and set the workflow mode:
+
+1. **Parse --mode option** from command line
+2. **If --mode auto or not specified**: Call `workflow_detect_mode` MCP tool to analyze task
+3. **Call `workflow_set_mode`** MCP tool to store mode in state
+
+```
+workflow_set_mode(mode: "auto" | "full" | "fast" | "minimal")
+```
+
+The mode determines which phases run:
+- **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical_writer
+- **fast**: architect → developer → reviewer → implementer → technical_writer
+- **minimal**: developer → implementer
+
+### Step 2.5: Load Agent Prompts
 
 Read the agent prompts from `~/.claude/agents/`:
 - orchestrator.md
@@ -499,6 +546,28 @@ Add to `.tasks/TASK_XXX/state.json`:
 - If partial output usable, continue with warning
 - Otherwise apply fallback behavior
 
+### Step 3.6: Detect Optional Specialized Agents
+
+Check if specialized agents should be enabled based on task description and files:
+
+1. **Security Auditor**: If task mentions auth, password, token, secret, SQL, encryption
+   - Or files match: `**/auth/**`, `**/security/**`, `**/.env*`
+   - Call `workflow_enable_optional_phase("security_auditor", reason)`
+
+2. **Performance Analyst**: If task mentions performance, cache, optimize, slow, scale
+   - Or files match: `**/database/**`, `**/cache/**`
+   - Call `workflow_enable_optional_phase("performance_analyst", reason)`
+
+3. **API Guardian**: If task mentions API, endpoint, breaking, deprecate, schema
+   - Or files match: `**/api/**`, `**/routes/**`, `**/openapi*`
+   - Call `workflow_enable_optional_phase("api_guardian", reason)`
+
+4. **Accessibility Reviewer**: If task mentions UI, component, form, a11y, WCAG
+   - Or files match: `**/*.tsx`, `**/*.jsx`, `**/*.vue`
+   - Call `workflow_enable_optional_phase("accessibility_reviewer", reason)`
+
+These agents run after the Reviewer phase (parallel with Skeptic if enabled).
+
 ### Step 4: Start Planning Loop
 
 Launch the Architect agent first using the Task tool:
@@ -551,20 +620,40 @@ After Architect completes:
 
 ### Step 6: Continue Through Planning Loop
 
-Architect → Developer → Reviewer → Skeptic
+The planning loop adapts based on workflow mode:
+- **full mode**: Architect → Developer → Reviewer → Skeptic
+- **fast mode**: Architect → Developer → Reviewer (skip Skeptic)
+- **minimal mode**: Developer only (skip Architect, Reviewer, Skeptic)
 
 At each step:
-1. Load previous agent output
-2. **Transition state** before spawning:
+1. **Check if phase is in mode**: Call `workflow_is_phase_in_mode(phase)` - skip if not included
+2. Load previous agent output
+3. **Transition state** before spawning:
    ```bash
    python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase <next_phase>
    ```
-3. Spawn next agent with context
-4. Save output
-5. **Parse structured outputs** (review_issues, recommendation)
-6. Check for checkpoint
-7. Handle human input if needed
-8. **If REVISE**: Loop back to developer, increment iteration in state
+4. Spawn next agent with context
+5. **Record cost**: Call `workflow_record_cost(agent, model, input_tokens, output_tokens, duration)`
+6. Save output
+7. **Parse structured outputs** (review_issues, recommendation)
+8. Check for checkpoint
+9. Handle human input if needed
+10. **If REVISE**: Loop back to developer, increment iteration in state
+
+#### Parallel Reviewer+Skeptic Execution
+
+When `--parallel` flag is set or `parallelization.reviewer_skeptic.enabled: true` in config:
+
+1. After Developer completes, call `workflow_start_parallel_phase(["reviewer", "skeptic"])`
+2. Spawn both agents simultaneously using parallel Task calls:
+   ```
+   Task(subagent_type: "general-purpose", prompt: "[Reviewer prompt]", run_in_background: true)
+   Task(subagent_type: "general-purpose", prompt: "[Skeptic prompt]", run_in_background: true)
+   ```
+3. Wait for both to complete (use TaskOutput with block=true)
+4. For each completed agent, call `workflow_complete_parallel_phase(phase, summary, concerns)`
+5. Call `workflow_merge_parallel_results(merge_strategy: "deduplicate")`
+6. Use merged concerns for implementation planning
 
 ### Step 7: Start Implementation Loop
 
@@ -672,9 +761,22 @@ After Technical Writer completes:
 
 When all steps complete:
 1. Final review checkpoint
-2. Generate commit message (include documentation changes)
-3. Ask human to approve commit
-4. Update lessons-learned.md
+2. **Display cost summary**: Call `workflow_get_cost_summary()` and display:
+   ```
+   Workflow Complete: TASK_XXX
+   Mode: [mode] | Duration: [time]
+
+   Cost Summary:
+     Architect (opus):    [tokens] tokens  $[cost]
+     Developer (opus):    [tokens] tokens  $[cost]
+     ...
+     ─────────────────────────────────────
+     Total:              [tokens] tokens  $[cost]
+   ```
+3. Generate commit message (include documentation changes)
+4. Ask human to approve commit
+5. Update lessons-learned.md
+6. **Record concern outcomes** (optional): If any concerns were raised, prompt user to mark outcomes for agent performance tracking
 
 ## State Management (Enforced)
 

@@ -53,6 +53,31 @@ from agentic_workflow_server.state_tools import (
     workflow_get_available_model,
     workflow_get_resilience_status,
     workflow_clear_model_cooldown,
+    # Workflow modes
+    workflow_detect_mode,
+    workflow_set_mode,
+    workflow_get_mode,
+    workflow_is_phase_in_mode,
+    # Cost tracking
+    workflow_record_cost,
+    workflow_get_cost_summary,
+    # Parallelization
+    workflow_start_parallel_phase,
+    workflow_complete_parallel_phase,
+    workflow_merge_parallel_results,
+    # Assertions
+    workflow_add_assertion,
+    workflow_verify_assertion,
+    workflow_get_assertions,
+    # Error patterns
+    workflow_record_error_pattern,
+    workflow_match_error,
+    # Agent performance
+    workflow_record_concern_outcome,
+    workflow_get_agent_performance,
+    # Optional phases
+    workflow_enable_optional_phase,
+    workflow_get_optional_phases,
     # Helpers
     get_tasks_dir,
     DISCOVERY_CATEGORIES,
@@ -76,6 +101,16 @@ def clean_tasks_dir():
     if resilience_file.exists():
         resilience_file.unlink()
 
+    # Clean error patterns
+    error_patterns_file = tasks_dir / ".error_patterns.jsonl"
+    if error_patterns_file.exists():
+        error_patterns_file.unlink()
+
+    # Clean agent performance
+    performance_file = tasks_dir / ".agent_performance.jsonl"
+    if performance_file.exists():
+        performance_file.unlink()
+
     yield tasks_dir
 
     # Clean up after
@@ -86,6 +121,12 @@ def clean_tasks_dir():
 
     if resilience_file.exists():
         resilience_file.unlink()
+
+    if error_patterns_file.exists():
+        error_patterns_file.unlink()
+
+    if performance_file.exists():
+        performance_file.unlink()
 
 
 class TestWorkflowInitialization:
@@ -481,6 +522,391 @@ class TestHumanDecisions:
         assert result["success"] is True
         assert result["decision"]["decision"] == "approve"
         assert result["total_decisions"] == 1
+
+
+class TestWorkflowModes:
+    """Test workflow mode detection and management."""
+
+    def test_detect_mode_minimal_typo(self, clean_tasks_dir):
+        result = workflow_detect_mode("Fix typo in README")
+
+        assert result["mode"] == "minimal"
+        assert result["confidence"] >= 0.7
+        assert "typo" in result["matched_keywords"]
+
+    def test_detect_mode_full_security(self, clean_tasks_dir):
+        result = workflow_detect_mode("Implement user authentication with JWT")
+
+        assert result["mode"] == "full"
+        assert result["confidence"] >= 0.8
+        assert "authentication" in result["matched_keywords"]
+
+    def test_detect_mode_fast_feature(self, clean_tasks_dir):
+        result = workflow_detect_mode("Refactor the user profile component")
+
+        assert result["mode"] == "fast"
+        assert "refactor" in [k.lower() for k in result["matched_keywords"]]
+
+    def test_set_mode_explicit(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_100")
+
+        result = workflow_set_mode("minimal", task_id="TASK_TEST_100")
+
+        assert result["success"] is True
+        assert result["workflow_mode"]["effective"] == "minimal"
+        assert "developer" in result["workflow_mode"]["phases"]
+        assert "architect" not in result["workflow_mode"]["phases"]
+
+    def test_set_mode_auto(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_101", description="Fix typo in docs")
+
+        result = workflow_set_mode("auto", task_id="TASK_TEST_101")
+
+        assert result["success"] is True
+        assert result["workflow_mode"]["requested"] == "auto"
+        assert result["workflow_mode"]["effective"] == "minimal"
+
+    def test_get_mode(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_102")
+        workflow_set_mode("fast", task_id="TASK_TEST_102")
+
+        result = workflow_get_mode(task_id="TASK_TEST_102")
+
+        assert result["workflow_mode"]["effective"] == "fast"
+        assert "available_modes" in result
+
+    def test_is_phase_in_mode(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_103")
+        workflow_set_mode("minimal", task_id="TASK_TEST_103")
+
+        # Developer should be in minimal mode
+        result1 = workflow_is_phase_in_mode("developer", task_id="TASK_TEST_103")
+        assert result1["in_mode"] is True
+
+        # Architect should NOT be in minimal mode
+        result2 = workflow_is_phase_in_mode("architect", task_id="TASK_TEST_103")
+        assert result2["in_mode"] is False
+
+
+class TestCostTracking:
+    """Test cost tracking and reporting."""
+
+    def test_record_cost(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_110")
+
+        result = workflow_record_cost(
+            agent="architect",
+            model="opus",
+            input_tokens=10000,
+            output_tokens=5000,
+            duration_seconds=30.5,
+            task_id="TASK_TEST_110"
+        )
+
+        assert result["success"] is True
+        assert result["entry"]["input_tokens"] == 10000
+        assert result["entry"]["output_tokens"] == 5000
+        assert result["entry"]["total_cost"] > 0
+        assert result["running_total"] > 0
+
+    def test_cost_summary(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_111")
+
+        workflow_record_cost("architect", "opus", 10000, 5000, task_id="TASK_TEST_111")
+        workflow_record_cost("developer", "opus", 20000, 8000, task_id="TASK_TEST_111")
+        workflow_record_cost("reviewer", "sonnet", 15000, 3000, task_id="TASK_TEST_111")
+
+        result = workflow_get_cost_summary(task_id="TASK_TEST_111")
+
+        assert result["entries_count"] == 3
+        assert "architect" in result["by_agent"]
+        assert "opus" in result["by_model"]
+        assert result["totals"]["total_cost"] > 0
+        assert "formatted_summary" in result
+
+
+class TestParallelization:
+    """Test parallel phase execution."""
+
+    def test_start_parallel_phase(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_120")
+
+        result = workflow_start_parallel_phase(
+            phases=["reviewer", "skeptic"],
+            task_id="TASK_TEST_120"
+        )
+
+        assert result["success"] is True
+        assert result["parallel_phases"] == ["reviewer", "skeptic"]
+
+    def test_complete_parallel_phases(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_121")
+        workflow_start_parallel_phase(["reviewer", "skeptic"], task_id="TASK_TEST_121")
+
+        # Complete reviewer
+        result1 = workflow_complete_parallel_phase(
+            phase="reviewer",
+            result_summary="Found 2 issues",
+            concerns=[{"description": "Missing validation"}],
+            task_id="TASK_TEST_121"
+        )
+
+        assert result1["success"] is True
+        assert result1["all_complete"] is False
+        assert "skeptic" in result1["remaining"]
+
+        # Complete skeptic
+        result2 = workflow_complete_parallel_phase(
+            phase="skeptic",
+            result_summary="Found 1 edge case",
+            concerns=[{"description": "Race condition possible"}],
+            task_id="TASK_TEST_121"
+        )
+
+        assert result2["success"] is True
+        assert result2["all_complete"] is True
+        assert result2["remaining"] == []
+
+    def test_merge_parallel_results_deduplicate(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_122")
+        workflow_start_parallel_phase(["reviewer", "skeptic"], task_id="TASK_TEST_122")
+
+        # Both agents find the same concern
+        workflow_complete_parallel_phase(
+            phase="reviewer",
+            concerns=[{"description": "Missing input validation"}],
+            task_id="TASK_TEST_122"
+        )
+        workflow_complete_parallel_phase(
+            phase="skeptic",
+            concerns=[{"description": "Missing input validation"}, {"description": "Race condition"}],
+            task_id="TASK_TEST_122"
+        )
+
+        result = workflow_merge_parallel_results(
+            task_id="TASK_TEST_122",
+            merge_strategy="deduplicate"
+        )
+
+        assert result["success"] is True
+        assert result["original_count"] == 3
+        assert result["merged_count"] == 2  # Deduplicated
+
+
+class TestAssertions:
+    """Test structured assertions."""
+
+    def test_add_assertion(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_130")
+
+        result = workflow_add_assertion(
+            assertion_type="file_exists",
+            definition={"path": "src/auth.ts", "must_contain": "export"},
+            step_id="1.2",
+            task_id="TASK_TEST_130"
+        )
+
+        assert result["success"] is True
+        assert result["assertion"]["id"] == "A001"
+        assert result["assertion"]["status"] == "pending"
+
+    def test_verify_assertion_pass(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_131")
+        add_result = workflow_add_assertion(
+            assertion_type="test_passes",
+            definition={"command": "npm test"},
+            task_id="TASK_TEST_131"
+        )
+
+        result = workflow_verify_assertion(
+            assertion_id=add_result["assertion"]["id"],
+            result=True,
+            message="All tests passed",
+            task_id="TASK_TEST_131"
+        )
+
+        assert result["success"] is True
+        assert result["assertion"]["status"] == "passed"
+
+    def test_verify_assertion_fail(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_132")
+        add_result = workflow_add_assertion(
+            assertion_type="lint_passes",
+            definition={"command": "npm run lint"},
+            task_id="TASK_TEST_132"
+        )
+
+        result = workflow_verify_assertion(
+            assertion_id=add_result["assertion"]["id"],
+            result=False,
+            message="Lint errors found",
+            task_id="TASK_TEST_132"
+        )
+
+        assert result["success"] is True
+        assert result["assertion"]["status"] == "failed"
+
+    def test_get_assertions_filtered(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_133")
+        workflow_add_assertion("file_exists", {"path": "a.ts"}, "1.1", task_id="TASK_TEST_133")
+        workflow_add_assertion("file_exists", {"path": "b.ts"}, "1.2", task_id="TASK_TEST_133")
+        workflow_add_assertion("test_passes", {"command": "npm test"}, "2.1", task_id="TASK_TEST_133")
+
+        result = workflow_get_assertions(step_id="1.1", task_id="TASK_TEST_133")
+
+        assert result["count"] == 1
+        assert result["assertions"][0]["definition"]["path"] == "a.ts"
+
+
+class TestErrorPatterns:
+    """Test error pattern learning."""
+
+    def test_record_error_pattern(self, clean_tasks_dir):
+        result = workflow_record_error_pattern(
+            error_signature="Cannot find module '@/lib",
+            error_type="compile",
+            solution="Check tsconfig.json paths - @/ should map to src/",
+            tags=["typescript", "path-alias"]
+        )
+
+        assert result["success"] is True
+        assert result["action"] == "created"
+        assert result["pattern"]["times_seen"] == 1
+
+    def test_record_error_pattern_updates_existing(self, clean_tasks_dir):
+        workflow_record_error_pattern(
+            error_signature="Module not found",
+            error_type="compile",
+            solution="Check imports"
+        )
+
+        result = workflow_record_error_pattern(
+            error_signature="Module not found",
+            error_type="compile",
+            solution="Check imports",
+            tags=["imports"]
+        )
+
+        assert result["action"] == "updated"
+        assert result["pattern"]["times_seen"] == 2
+
+    def test_match_error(self, clean_tasks_dir):
+        workflow_record_error_pattern(
+            error_signature="Cannot find module '@/lib",
+            error_type="compile",
+            solution="Check tsconfig paths"
+        )
+
+        result = workflow_match_error(
+            error_output="Error: Cannot find module '@/lib/utils'. Did you mean to import from 'src/lib/utils'?"
+        )
+
+        assert result["count"] >= 1
+        assert result["matches"][0]["confidence"] >= 0.5
+        assert "tsconfig" in result["matches"][0]["solution"]
+
+    def test_match_error_no_match(self, clean_tasks_dir):
+        result = workflow_match_error(
+            error_output="Some completely unrelated error that doesn't match anything"
+        )
+
+        assert result["count"] == 0
+
+
+class TestAgentPerformance:
+    """Test agent performance tracking."""
+
+    def test_record_concern_outcome(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_150")
+        add_result = workflow_add_concern(
+            source="skeptic",
+            severity="high",
+            description="Race condition in auth",
+            task_id="TASK_TEST_150"
+        )
+
+        result = workflow_record_concern_outcome(
+            concern_id=add_result["concern"]["id"],
+            outcome="valid",
+            notes="Added debounce to fix",
+            task_id="TASK_TEST_150"
+        )
+
+        assert result["success"] is True
+        assert result["concern"]["outcome"]["status"] == "valid"
+
+    def test_record_concern_outcome_false_positive(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_151")
+        add_result = workflow_add_concern(
+            source="reviewer",
+            severity="medium",
+            description="Memory leak concern",
+            task_id="TASK_TEST_151"
+        )
+
+        result = workflow_record_concern_outcome(
+            concern_id=add_result["concern"]["id"],
+            outcome="false_positive",
+            notes="Framework handles cleanup",
+            task_id="TASK_TEST_151"
+        )
+
+        assert result["success"] is True
+        assert result["concern"]["outcome"]["status"] == "false_positive"
+
+    def test_get_agent_performance(self, clean_tasks_dir):
+        # Record some performance data
+        workflow_initialize(task_id="TASK_TEST_152")
+        c1 = workflow_add_concern("skeptic", "high", "Issue 1", task_id="TASK_TEST_152")
+        c2 = workflow_add_concern("skeptic", "medium", "Issue 2", task_id="TASK_TEST_152")
+        c3 = workflow_add_concern("reviewer", "high", "Issue 3", task_id="TASK_TEST_152")
+
+        workflow_record_concern_outcome(c1["concern"]["id"], "valid", task_id="TASK_TEST_152")
+        workflow_record_concern_outcome(c2["concern"]["id"], "false_positive", task_id="TASK_TEST_152")
+        workflow_record_concern_outcome(c3["concern"]["id"], "valid", task_id="TASK_TEST_152")
+
+        result = workflow_get_agent_performance()
+
+        assert "agents" in result
+        assert result["total_concerns"] == 3
+
+
+class TestOptionalPhases:
+    """Test optional specialized phases."""
+
+    def test_enable_optional_phase(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_160")
+
+        result = workflow_enable_optional_phase(
+            phase="security_auditor",
+            reason="Task involves authentication",
+            task_id="TASK_TEST_160"
+        )
+
+        assert result["success"] is True
+        assert "security_auditor" in result["optional_phases"]
+
+    def test_enable_optional_phase_invalid(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_161")
+
+        result = workflow_enable_optional_phase(
+            phase="invalid_agent",
+            task_id="TASK_TEST_161"
+        )
+
+        assert result["success"] is False
+        assert "Unknown optional phase" in result["error"]
+
+    def test_get_optional_phases(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_162")
+        workflow_enable_optional_phase("security_auditor", "Auth task", task_id="TASK_TEST_162")
+        workflow_enable_optional_phase("api_guardian", "API changes", task_id="TASK_TEST_162")
+
+        result = workflow_get_optional_phases(task_id="TASK_TEST_162")
+
+        assert "security_auditor" in result["optional_phases"]
+        assert "api_guardian" in result["optional_phases"]
+        assert "Auth task" in result["reasons"]["security_auditor"]["reason"]
 
 
 if __name__ == "__main__":

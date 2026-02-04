@@ -1,0 +1,63 @@
+# AI Context Documentation
+
+This directory contains documentation specifically written for AI agents working with the agentic-workflow codebase. Unlike user-facing docs, these focus on implementation details, patterns, and gotchas that help AI agents make good decisions.
+
+## Available Documentation
+
+| File | Purpose |
+|------|---------|
+| [memory-preservation.md](./memory-preservation.md) | How to save/retrieve discoveries across context compaction |
+
+## When to Read These Docs
+
+- **Starting a new task** - Check for relevant patterns before planning
+- **After context compaction** - Reload discoveries, review patterns
+- **Implementing features** - Understand conventions and constraints
+- **Debugging issues** - Check for known gotchas
+
+## For Technical Writers
+
+When documenting new features or patterns, consider:
+
+1. **Is this AI-specific?** - Does it help AI agents but not necessarily human developers?
+2. **Is it non-obvious?** - Would an AI without this context make mistakes?
+3. **Is it a pattern?** - Is it something that should be consistent across the codebase?
+
+If yes to any, add it to this directory.
+
+### Document Structure
+
+Each document should include:
+- **What problem it solves** - Why does this exist?
+- **How to use it** - Concrete examples with tool calls
+- **When to use it** - Decision criteria
+- **Common mistakes** - What to avoid
+
+## MCP Tools Reference
+
+The agentic-workflow MCP server provides tools for AI agents. Key tool groups:
+
+### Memory & Context
+- `workflow_save_discovery` - Save learnings
+- `workflow_get_discoveries` - Retrieve learnings
+- `workflow_flush_context` - Get all learnings for reload
+- `workflow_search_memories` - Search across tasks
+- `workflow_get_context_usage` - Check context pressure
+- `workflow_prune_old_outputs` - Clean up old files
+
+### Workflow State
+- `workflow_initialize` - Start a new workflow
+- `workflow_transition` - Move between phases
+- `workflow_get_state` - Get current state
+- `workflow_complete_phase` - Mark phase done
+
+### Task Linking
+- `workflow_link_tasks` - Connect related tasks
+- `workflow_get_linked_tasks` - Find related tasks
+
+### Error Recovery
+- `workflow_record_model_error` - Track model failures
+- `workflow_get_available_model` - Get fallback model
+- `workflow_get_resilience_status` - Check model health
+
+See the MCP server source at `mcp/agentic-workflow-server/` for full API documentation.

@@ -1707,3 +1707,1208 @@ def workflow_clear_model_cooldown(
         "model": model,
         "message": f"Cleared cooldown for {model}"
     }
+
+
+# ============================================================================
+# Workflow Modes
+# ============================================================================
+
+WORKFLOW_MODES = {
+    "full": {
+        "description": "All 7 agents - complex features, critical changes",
+        "phases": ["architect", "developer", "reviewer", "skeptic", "implementer", "feedback", "technical_writer"],
+        "estimated_cost": "$0.50+"
+    },
+    "fast": {
+        "description": "Skip Skeptic and Feedback - standard changes",
+        "phases": ["architect", "developer", "reviewer", "implementer", "technical_writer"],
+        "estimated_cost": "$0.25"
+    },
+    "minimal": {
+        "description": "Developer and Implementer only - simple fixes, typos",
+        "phases": ["developer", "implementer"],
+        "estimated_cost": "$0.10"
+    }
+}
+
+# Keywords for auto-detection
+AUTO_DETECT_RULES = {
+    "minimal": {
+        "keywords": ["typo", "fix typo", "simple fix", "rename", "update comment", "fix import"],
+        "max_files": 1
+    },
+    "fast": {
+        "keywords": ["add feature", "implement", "update", "refactor"],
+        "exclude_keywords": ["security", "auth", "database", "migration", "api", "breaking"]
+    },
+    "full": {
+        "keywords": ["security", "authentication", "authorization", "database", "migration",
+                    "api", "breaking change", "critical", "auth", "password", "token"]
+    }
+}
+
+
+def workflow_detect_mode(
+    task_description: str,
+    files_affected: Optional[list[str]] = None
+) -> dict[str, Any]:
+    """Auto-detect the appropriate workflow mode based on task description.
+
+    Analyzes the task description and affected files to determine
+    whether to use full, fast, or minimal workflow mode.
+
+    Args:
+        task_description: Description of the task
+        files_affected: Optional list of files that will be affected
+
+    Returns:
+        Detected mode with reasoning
+    """
+    desc_lower = task_description.lower()
+    file_count = len(files_affected) if files_affected else 0
+
+    # Check for full mode triggers first (highest priority)
+    full_matches = []
+    for keyword in AUTO_DETECT_RULES["full"]["keywords"]:
+        if keyword in desc_lower:
+            full_matches.append(keyword)
+
+    if full_matches:
+        return {
+            "mode": "full",
+            "reason": f"Task mentions critical keywords: {', '.join(full_matches)}",
+            "confidence": 0.9,
+            "matched_keywords": full_matches
+        }
+
+    # Check for minimal mode
+    minimal_matches = []
+    for keyword in AUTO_DETECT_RULES["minimal"]["keywords"]:
+        if keyword in desc_lower:
+            minimal_matches.append(keyword)
+
+    if minimal_matches and file_count <= AUTO_DETECT_RULES["minimal"]["max_files"]:
+        return {
+            "mode": "minimal",
+            "reason": f"Simple task ({', '.join(minimal_matches)}) affecting {file_count} files",
+            "confidence": 0.8,
+            "matched_keywords": minimal_matches
+        }
+
+    # Check for fast mode exclusions
+    fast_excluded = False
+    for exclude_keyword in AUTO_DETECT_RULES["fast"]["exclude_keywords"]:
+        if exclude_keyword in desc_lower:
+            fast_excluded = True
+            break
+
+    if not fast_excluded:
+        # Check for fast mode triggers
+        fast_matches = []
+        for keyword in AUTO_DETECT_RULES["fast"]["keywords"]:
+            if keyword in desc_lower:
+                fast_matches.append(keyword)
+
+        if fast_matches:
+            return {
+                "mode": "fast",
+                "reason": f"Standard task ({', '.join(fast_matches)}) without critical patterns",
+                "confidence": 0.7,
+                "matched_keywords": fast_matches
+            }
+
+    # Default to full for safety
+    return {
+        "mode": "full",
+        "reason": "No specific pattern detected, defaulting to full mode for safety",
+        "confidence": 0.5,
+        "matched_keywords": []
+    }
+
+
+def workflow_set_mode(
+    mode: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Set the workflow mode for a task.
+
+    Args:
+        mode: Workflow mode (full, fast, minimal, auto)
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Updated task state with mode configuration
+    """
+    if mode not in ["full", "fast", "minimal", "auto"]:
+        return {
+            "success": False,
+            "error": f"Invalid mode '{mode}'. Must be one of: full, fast, minimal, auto"
+        }
+
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if mode == "auto":
+        # Auto-detect based on task description
+        description = state.get("description", "")
+        detection = workflow_detect_mode(description)
+        effective_mode = detection["mode"]
+        state["workflow_mode"] = {
+            "requested": "auto",
+            "effective": effective_mode,
+            "detection_reason": detection["reason"],
+            "confidence": detection["confidence"]
+        }
+    else:
+        state["workflow_mode"] = {
+            "requested": mode,
+            "effective": mode,
+            "detection_reason": "Explicitly set by user",
+            "confidence": 1.0
+        }
+
+    # Update required phases based on mode
+    effective_mode = state["workflow_mode"]["effective"]
+    mode_config = WORKFLOW_MODES.get(effective_mode, WORKFLOW_MODES["full"])
+    state["workflow_mode"]["phases"] = mode_config["phases"]
+    state["workflow_mode"]["estimated_cost"] = mode_config["estimated_cost"]
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": state.get("task_id"),
+        "workflow_mode": state["workflow_mode"],
+        "message": f"Workflow mode set to {effective_mode}"
+    }
+
+
+def workflow_get_mode(
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get the current workflow mode for a task.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Current mode configuration
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    mode = state.get("workflow_mode", {
+        "requested": "full",
+        "effective": "full",
+        "phases": WORKFLOW_MODES["full"]["phases"],
+        "estimated_cost": WORKFLOW_MODES["full"]["estimated_cost"]
+    })
+
+    return {
+        "task_id": state.get("task_id"),
+        "workflow_mode": mode,
+        "available_modes": list(WORKFLOW_MODES.keys())
+    }
+
+
+def workflow_is_phase_in_mode(
+    phase: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Check if a phase is included in the current workflow mode.
+
+    Args:
+        phase: Phase name to check
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Whether the phase is included
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "in_mode": True,  # Default to allowing if no task
+            "error": "No active task found, assuming full mode"
+        }
+
+    state = _load_state(task_dir)
+    mode = state.get("workflow_mode", {})
+    phases = mode.get("phases", WORKFLOW_MODES["full"]["phases"])
+
+    return {
+        "phase": phase,
+        "in_mode": phase in phases,
+        "effective_mode": mode.get("effective", "full"),
+        "task_id": state.get("task_id")
+    }
+
+
+# ============================================================================
+# Cost Tracking
+# ============================================================================
+
+# Model costs per million tokens (from config, but defaults here)
+MODEL_COSTS = {
+    "opus": {"input": 15.00, "output": 75.00},
+    "sonnet": {"input": 3.00, "output": 15.00},
+    "haiku": {"input": 0.25, "output": 1.25}
+}
+
+
+def workflow_record_cost(
+    agent: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    duration_seconds: float = 0,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Record token usage and cost for an agent run.
+
+    Args:
+        agent: Agent name (architect, developer, etc.)
+        model: Model used (opus, sonnet, haiku)
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+        duration_seconds: Time taken for the run
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Recorded cost entry with calculated cost
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    # Calculate cost
+    model_lower = model.lower()
+    costs = MODEL_COSTS.get(model_lower, MODEL_COSTS["opus"])
+    input_cost = (input_tokens / 1_000_000) * costs["input"]
+    output_cost = (output_tokens / 1_000_000) * costs["output"]
+    total_cost = input_cost + output_cost
+
+    # Initialize cost tracking if needed
+    if "cost_tracking" not in state:
+        state["cost_tracking"] = {
+            "entries": [],
+            "totals": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_cost": 0,
+                "duration_seconds": 0
+            },
+            "by_agent": {},
+            "by_model": {}
+        }
+
+    # Create entry
+    entry = {
+        "agent": agent,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "input_cost": round(input_cost, 4),
+        "output_cost": round(output_cost, 4),
+        "total_cost": round(total_cost, 4),
+        "duration_seconds": duration_seconds,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # Update state
+    state["cost_tracking"]["entries"].append(entry)
+    state["cost_tracking"]["totals"]["input_tokens"] += input_tokens
+    state["cost_tracking"]["totals"]["output_tokens"] += output_tokens
+    state["cost_tracking"]["totals"]["total_cost"] += total_cost
+    state["cost_tracking"]["totals"]["duration_seconds"] += duration_seconds
+
+    # Update by-agent totals
+    if agent not in state["cost_tracking"]["by_agent"]:
+        state["cost_tracking"]["by_agent"][agent] = {
+            "input_tokens": 0, "output_tokens": 0, "total_cost": 0, "runs": 0
+        }
+    state["cost_tracking"]["by_agent"][agent]["input_tokens"] += input_tokens
+    state["cost_tracking"]["by_agent"][agent]["output_tokens"] += output_tokens
+    state["cost_tracking"]["by_agent"][agent]["total_cost"] += total_cost
+    state["cost_tracking"]["by_agent"][agent]["runs"] += 1
+
+    # Update by-model totals
+    if model not in state["cost_tracking"]["by_model"]:
+        state["cost_tracking"]["by_model"][model] = {
+            "input_tokens": 0, "output_tokens": 0, "total_cost": 0, "runs": 0
+        }
+    state["cost_tracking"]["by_model"][model]["input_tokens"] += input_tokens
+    state["cost_tracking"]["by_model"][model]["output_tokens"] += output_tokens
+    state["cost_tracking"]["by_model"][model]["total_cost"] += total_cost
+    state["cost_tracking"]["by_model"][model]["runs"] += 1
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "entry": entry,
+        "running_total": round(state["cost_tracking"]["totals"]["total_cost"], 4),
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_get_cost_summary(
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get cost summary for a workflow task.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Comprehensive cost summary with breakdowns
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    cost_tracking = state.get("cost_tracking", {
+        "entries": [],
+        "totals": {"input_tokens": 0, "output_tokens": 0, "total_cost": 0, "duration_seconds": 0},
+        "by_agent": {},
+        "by_model": {}
+    })
+
+    # Calculate mode comparison if we have mode info
+    mode = state.get("workflow_mode", {}).get("effective", "full")
+    full_mode_estimate = cost_tracking["totals"]["total_cost"]  # Current cost is the baseline
+
+    # Generate formatted summary
+    summary_lines = []
+    summary_lines.append(f"Cost Summary for {state.get('task_id', 'unknown')}")
+    summary_lines.append(f"Mode: {mode}")
+    summary_lines.append("")
+    summary_lines.append("By Agent:")
+
+    for agent, data in sorted(cost_tracking.get("by_agent", {}).items()):
+        tokens = data["input_tokens"] + data["output_tokens"]
+        cost = data["total_cost"]
+        summary_lines.append(f"  {agent}: {tokens:,} tokens  ${cost:.4f}")
+
+    summary_lines.append("")
+    summary_lines.append(f"Total Tokens: {cost_tracking['totals']['input_tokens'] + cost_tracking['totals']['output_tokens']:,}")
+    summary_lines.append(f"Total Cost: ${cost_tracking['totals']['total_cost']:.4f}")
+    summary_lines.append(f"Duration: {cost_tracking['totals']['duration_seconds']:.1f}s")
+
+    return {
+        "task_id": state.get("task_id"),
+        "mode": mode,
+        "totals": cost_tracking["totals"],
+        "by_agent": cost_tracking.get("by_agent", {}),
+        "by_model": cost_tracking.get("by_model", {}),
+        "entries_count": len(cost_tracking.get("entries", [])),
+        "formatted_summary": "\n".join(summary_lines)
+    }
+
+
+# ============================================================================
+# Parallelization Support
+# ============================================================================
+
+def workflow_start_parallel_phase(
+    phases: list[str],
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Start parallel execution of multiple phases.
+
+    Used for running Reviewer and Skeptic in parallel.
+
+    Args:
+        phases: List of phase names to run in parallel
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Parallel phase tracking info
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    # Initialize parallel tracking
+    state["parallel_execution"] = {
+        "active": True,
+        "phases": phases,
+        "started_at": datetime.now().isoformat(),
+        "completed_phases": [],
+        "results": {}
+    }
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": state.get("task_id"),
+        "parallel_phases": phases,
+        "message": f"Started parallel execution of: {', '.join(phases)}"
+    }
+
+
+def workflow_complete_parallel_phase(
+    phase: str,
+    result_summary: str = "",
+    concerns: Optional[list[dict]] = None,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Mark a parallel phase as complete and store its results.
+
+    Args:
+        phase: Phase name that completed
+        result_summary: Summary of the phase's output
+        concerns: List of concerns raised by this phase
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Updated parallel execution state
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "parallel_execution" not in state or not state["parallel_execution"].get("active"):
+        return {
+            "success": False,
+            "error": "No active parallel execution"
+        }
+
+    parallel = state["parallel_execution"]
+
+    if phase not in parallel["phases"]:
+        return {
+            "success": False,
+            "error": f"Phase {phase} is not part of current parallel execution"
+        }
+
+    # Store results
+    parallel["results"][phase] = {
+        "completed_at": datetime.now().isoformat(),
+        "summary": result_summary,
+        "concerns": concerns or []
+    }
+
+    if phase not in parallel["completed_phases"]:
+        parallel["completed_phases"].append(phase)
+
+    # Check if all parallel phases are complete
+    all_complete = all(p in parallel["completed_phases"] for p in parallel["phases"])
+
+    if all_complete:
+        parallel["active"] = False
+        parallel["completed_at"] = datetime.now().isoformat()
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": state.get("task_id"),
+        "phase": phase,
+        "all_complete": all_complete,
+        "remaining": [p for p in parallel["phases"] if p not in parallel["completed_phases"]]
+    }
+
+
+def workflow_merge_parallel_results(
+    task_id: Optional[str] = None,
+    merge_strategy: str = "deduplicate"
+) -> dict[str, Any]:
+    """Merge results from parallel phase execution.
+
+    Combines concerns from multiple phases, optionally deduplicating.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+        merge_strategy: How to merge (deduplicate, combine, prioritize_first)
+
+    Returns:
+        Merged results with deduplicated concerns
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "parallel_execution" not in state:
+        return {
+            "success": False,
+            "error": "No parallel execution results to merge"
+        }
+
+    parallel = state["parallel_execution"]
+    results = parallel.get("results", {})
+
+    # Collect all concerns
+    all_concerns = []
+    for phase, phase_result in results.items():
+        for concern in phase_result.get("concerns", []):
+            concern["source_phase"] = phase
+            all_concerns.append(concern)
+
+    # Apply merge strategy
+    if merge_strategy == "deduplicate":
+        # Simple deduplication based on description similarity
+        seen_descriptions = set()
+        merged_concerns = []
+        for concern in all_concerns:
+            desc_key = concern.get("description", "").lower()[:100]
+            if desc_key not in seen_descriptions:
+                seen_descriptions.add(desc_key)
+                merged_concerns.append(concern)
+    elif merge_strategy == "combine":
+        merged_concerns = all_concerns
+    else:
+        merged_concerns = all_concerns
+
+    # Store merged results
+    state["parallel_execution"]["merged_concerns"] = merged_concerns
+    state["parallel_execution"]["merge_strategy"] = merge_strategy
+    state["parallel_execution"]["merged_at"] = datetime.now().isoformat()
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": state.get("task_id"),
+        "original_count": len(all_concerns),
+        "merged_count": len(merged_concerns),
+        "merge_strategy": merge_strategy,
+        "merged_concerns": merged_concerns
+    }
+
+
+# ============================================================================
+# Structured Assertions
+# ============================================================================
+
+ASSERTION_TYPES = [
+    "file_exists",
+    "test_passes",
+    "no_pattern",
+    "contains_pattern",
+    "type_check_passes",
+    "lint_passes"
+]
+
+
+def workflow_add_assertion(
+    assertion_type: str,
+    definition: dict[str, Any],
+    step_id: Optional[str] = None,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Add an assertion to the workflow for verification.
+
+    Args:
+        assertion_type: Type of assertion (file_exists, test_passes, etc.)
+        definition: Assertion definition (varies by type)
+        step_id: Optional step this assertion is tied to
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Created assertion with ID
+    """
+    if assertion_type not in ASSERTION_TYPES:
+        return {
+            "success": False,
+            "error": f"Invalid assertion type '{assertion_type}'. Must be one of: {', '.join(ASSERTION_TYPES)}"
+        }
+
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "assertions" not in state:
+        state["assertions"] = []
+
+    # Generate assertion ID
+    assertion_id = f"A{len(state['assertions']) + 1:03d}"
+
+    assertion = {
+        "id": assertion_id,
+        "type": assertion_type,
+        "definition": definition,
+        "step_id": step_id,
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+        "verified_at": None,
+        "result": None
+    }
+
+    state["assertions"].append(assertion)
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "assertion": assertion,
+        "task_id": state.get("task_id")
+    }
+
+
+def workflow_verify_assertion(
+    assertion_id: str,
+    result: bool,
+    message: str = "",
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Record the verification result of an assertion.
+
+    Args:
+        assertion_id: ID of the assertion to verify
+        result: Whether the assertion passed
+        message: Optional message about the result
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Updated assertion
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "assertions" not in state:
+        return {
+            "success": False,
+            "error": "No assertions found"
+        }
+
+    for assertion in state["assertions"]:
+        if assertion["id"] == assertion_id:
+            assertion["status"] = "passed" if result else "failed"
+            assertion["verified_at"] = datetime.now().isoformat()
+            assertion["result"] = {
+                "passed": result,
+                "message": message
+            }
+            _save_state(task_dir, state)
+            return {
+                "success": True,
+                "assertion": assertion,
+                "task_id": state.get("task_id")
+            }
+
+    return {
+        "success": False,
+        "error": f"Assertion {assertion_id} not found"
+    }
+
+
+def workflow_get_assertions(
+    step_id: Optional[str] = None,
+    status: Optional[str] = None,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get assertions, optionally filtered by step or status.
+
+    Args:
+        step_id: Filter by step ID
+        status: Filter by status (pending, passed, failed)
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        List of matching assertions
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    assertions = state.get("assertions", [])
+
+    # Filter
+    if step_id:
+        assertions = [a for a in assertions if a.get("step_id") == step_id]
+    if status:
+        assertions = [a for a in assertions if a.get("status") == status]
+
+    # Summary counts
+    total = len(state.get("assertions", []))
+    pending = len([a for a in state.get("assertions", []) if a.get("status") == "pending"])
+    passed = len([a for a in state.get("assertions", []) if a.get("status") == "passed"])
+    failed = len([a for a in state.get("assertions", []) if a.get("status") == "failed"])
+
+    return {
+        "assertions": assertions,
+        "count": len(assertions),
+        "summary": {
+            "total": total,
+            "pending": pending,
+            "passed": passed,
+            "failed": failed
+        },
+        "task_id": state.get("task_id")
+    }
+
+
+# ============================================================================
+# Error Pattern Learning
+# ============================================================================
+
+def _get_error_patterns_file() -> Path:
+    """Get the path to the error patterns file."""
+    tasks_dir = get_tasks_dir()
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    return tasks_dir / ".error_patterns.jsonl"
+
+
+def workflow_record_error_pattern(
+    error_signature: str,
+    error_type: str,
+    solution: str,
+    tags: Optional[list[str]] = None,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Record an error pattern and its solution for future matching.
+
+    Args:
+        error_signature: Unique identifying part of the error
+        error_type: Type of error (compile, runtime, test, etc.)
+        solution: Description of how to fix this error
+        tags: Optional tags for categorization
+        task_id: Optional task where this was discovered
+
+    Returns:
+        Recorded pattern
+    """
+    patterns_file = _get_error_patterns_file()
+
+    pattern = {
+        "signature": error_signature,
+        "type": error_type,
+        "solution": solution,
+        "tags": tags or [],
+        "times_seen": 1,
+        "last_task": task_id,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat()
+    }
+
+    # Check if pattern already exists
+    existing_patterns = []
+    if patterns_file.exists():
+        with open(patterns_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        existing_patterns.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+    # Check for existing similar pattern
+    for existing in existing_patterns:
+        if existing.get("signature") == error_signature:
+            existing["times_seen"] = existing.get("times_seen", 1) + 1
+            existing["last_task"] = task_id
+            existing["updated_at"] = datetime.now().isoformat()
+            # Merge tags
+            existing_tags = set(existing.get("tags", []))
+            existing_tags.update(tags or [])
+            existing["tags"] = list(existing_tags)
+
+            # Rewrite file
+            with open(patterns_file, "w") as f:
+                for p in existing_patterns:
+                    f.write(json.dumps(p) + "\n")
+
+            return {
+                "success": True,
+                "pattern": existing,
+                "action": "updated",
+                "message": f"Updated existing pattern (seen {existing['times_seen']} times)"
+            }
+
+    # Add new pattern
+    with open(patterns_file, "a") as f:
+        f.write(json.dumps(pattern) + "\n")
+
+    return {
+        "success": True,
+        "pattern": pattern,
+        "action": "created",
+        "message": "Recorded new error pattern"
+    }
+
+
+def workflow_match_error(
+    error_output: str,
+    min_confidence: float = 0.5
+) -> dict[str, Any]:
+    """Match an error output against known patterns.
+
+    Args:
+        error_output: The error output to match
+        min_confidence: Minimum confidence threshold (0-1)
+
+    Returns:
+        Matching patterns with solutions, sorted by relevance
+    """
+    patterns_file = _get_error_patterns_file()
+
+    if not patterns_file.exists():
+        return {
+            "matches": [],
+            "count": 0,
+            "message": "No error patterns recorded yet"
+        }
+
+    patterns = []
+    with open(patterns_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    patterns.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+    error_lower = error_output.lower()
+    matches = []
+
+    for pattern in patterns:
+        signature = pattern.get("signature", "").lower()
+        if not signature:
+            continue
+
+        # Simple substring matching with confidence based on match quality
+        if signature in error_lower:
+            # Higher confidence for longer, more specific matches
+            confidence = min(1.0, len(signature) / 50 + 0.5)
+            # Boost for frequently seen patterns
+            times_seen = pattern.get("times_seen", 1)
+            if times_seen > 3:
+                confidence = min(1.0, confidence + 0.1)
+
+            if confidence >= min_confidence:
+                matches.append({
+                    "pattern": pattern,
+                    "confidence": round(confidence, 2),
+                    "solution": pattern.get("solution"),
+                    "times_seen": times_seen
+                })
+
+    # Sort by confidence
+    matches.sort(key=lambda x: (-x["confidence"], -x["times_seen"]))
+
+    return {
+        "matches": matches[:5],  # Top 5 matches
+        "count": len(matches),
+        "total_patterns": len(patterns)
+    }
+
+
+# ============================================================================
+# Agent Performance Tracking
+# ============================================================================
+
+def workflow_record_concern_outcome(
+    concern_id: str,
+    outcome: str,
+    notes: str = "",
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Record the outcome of a concern (was it valid or false positive).
+
+    Args:
+        concern_id: ID of the concern
+        outcome: Outcome (valid, false_positive, partially_valid)
+        notes: Optional notes about the outcome
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Updated concern with outcome
+    """
+    valid_outcomes = ["valid", "false_positive", "partially_valid"]
+    if outcome not in valid_outcomes:
+        return {
+            "success": False,
+            "error": f"Invalid outcome '{outcome}'. Must be one of: {', '.join(valid_outcomes)}"
+        }
+
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    if "concerns" not in state:
+        return {
+            "success": False,
+            "error": "No concerns found"
+        }
+
+    for concern in state["concerns"]:
+        if concern["id"] == concern_id:
+            concern["outcome"] = {
+                "status": outcome,
+                "notes": notes,
+                "recorded_at": datetime.now().isoformat()
+            }
+            _save_state(task_dir, state)
+
+            # Also record to global performance tracking
+            _record_agent_performance(
+                agent=concern.get("source", "unknown"),
+                concern_type=concern.get("severity", "unknown"),
+                outcome=outcome
+            )
+
+            return {
+                "success": True,
+                "concern": concern,
+                "task_id": state.get("task_id")
+            }
+
+    return {
+        "success": False,
+        "error": f"Concern {concern_id} not found"
+    }
+
+
+def _get_performance_file() -> Path:
+    """Get the path to the agent performance file."""
+    tasks_dir = get_tasks_dir()
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    return tasks_dir / ".agent_performance.jsonl"
+
+
+def _record_agent_performance(agent: str, concern_type: str, outcome: str) -> None:
+    """Record a performance data point for an agent."""
+    performance_file = _get_performance_file()
+
+    entry = {
+        "agent": agent,
+        "concern_type": concern_type,
+        "outcome": outcome,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    with open(performance_file, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def workflow_get_agent_performance(
+    agent: Optional[str] = None,
+    time_range_days: int = 30
+) -> dict[str, Any]:
+    """Get performance statistics for agents.
+
+    Args:
+        agent: Optional specific agent to get stats for
+        time_range_days: Number of days to look back
+
+    Returns:
+        Performance statistics with precision metrics
+    """
+    performance_file = _get_performance_file()
+
+    if not performance_file.exists():
+        return {
+            "agents": {},
+            "total_concerns": 0,
+            "message": "No performance data recorded yet"
+        }
+
+    # Load and filter by time range
+    cutoff = datetime.now().timestamp() - (time_range_days * 24 * 60 * 60)
+    entries = []
+
+    with open(performance_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                entry_time = datetime.fromisoformat(entry.get("timestamp", "")).timestamp()
+                if entry_time >= cutoff:
+                    if agent is None or entry.get("agent") == agent:
+                        entries.append(entry)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    # Calculate statistics by agent
+    agent_stats = {}
+    for entry in entries:
+        agent_name = entry.get("agent", "unknown")
+        if agent_name not in agent_stats:
+            agent_stats[agent_name] = {
+                "total": 0,
+                "valid": 0,
+                "false_positive": 0,
+                "partially_valid": 0,
+                "by_type": {}
+            }
+
+        stats = agent_stats[agent_name]
+        stats["total"] += 1
+
+        outcome = entry.get("outcome", "unknown")
+        if outcome == "valid":
+            stats["valid"] += 1
+        elif outcome == "false_positive":
+            stats["false_positive"] += 1
+        elif outcome == "partially_valid":
+            stats["partially_valid"] += 1
+
+        # Track by concern type
+        concern_type = entry.get("concern_type", "unknown")
+        if concern_type not in stats["by_type"]:
+            stats["by_type"][concern_type] = {"total": 0, "valid": 0}
+        stats["by_type"][concern_type]["total"] += 1
+        if outcome in ["valid", "partially_valid"]:
+            stats["by_type"][concern_type]["valid"] += 1
+
+    # Calculate precision for each agent
+    for agent_name, stats in agent_stats.items():
+        if stats["total"] > 0:
+            stats["precision"] = round(
+                (stats["valid"] + stats["partially_valid"] * 0.5) / stats["total"],
+                2
+            )
+        else:
+            stats["precision"] = 0
+
+    return {
+        "agents": agent_stats,
+        "total_concerns": len(entries),
+        "time_range_days": time_range_days,
+        "message": f"Performance data for last {time_range_days} days"
+    }
+
+
+# ============================================================================
+# Optional Phase Management
+# ============================================================================
+
+def workflow_enable_optional_phase(
+    phase: str,
+    reason: str = "",
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Enable an optional phase for the current workflow.
+
+    Used to dynamically add specialized agents like security_auditor.
+
+    Args:
+        phase: Phase to enable
+        reason: Why this phase is being enabled
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Updated workflow mode
+    """
+    optional_phases = ["security_auditor", "performance_analyst", "api_guardian", "accessibility_reviewer"]
+
+    if phase not in optional_phases:
+        return {
+            "success": False,
+            "error": f"Unknown optional phase '{phase}'. Available: {', '.join(optional_phases)}"
+        }
+
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    # Initialize optional phases if needed
+    if "optional_phases" not in state:
+        state["optional_phases"] = []
+
+    if phase not in state["optional_phases"]:
+        state["optional_phases"].append(phase)
+
+    # Track why it was enabled
+    if "optional_phase_reasons" not in state:
+        state["optional_phase_reasons"] = {}
+    state["optional_phase_reasons"][phase] = {
+        "reason": reason,
+        "enabled_at": datetime.now().isoformat()
+    }
+
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": state.get("task_id"),
+        "optional_phases": state["optional_phases"],
+        "message": f"Enabled optional phase: {phase}"
+    }
+
+
+def workflow_get_optional_phases(
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get enabled optional phases for a workflow.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        List of enabled optional phases with reasons
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    return {
+        "task_id": state.get("task_id"),
+        "optional_phases": state.get("optional_phases", []),
+        "reasons": state.get("optional_phase_reasons", {})
+    }
