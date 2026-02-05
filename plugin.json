@@ -4,7 +4,7 @@
   "description": "Multi-agent development workflow with planning, implementation, and documentation phases. Includes loop mode for autonomous execution.",
   "author": "johanyman",
   "license": "MIT",
-  "repository": "https://github.com/johanyman/agentic-workflow",
+  "repository": "https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow",
   "keywords": [
     "workflow",
     "multi-agent",

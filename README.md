@@ -35,12 +35,12 @@ Complex development tasks require multiple perspectives: architecture considerat
 - Git
 - (Optional) [Gemini CLI](https://github.com/google/gemini-cli) for large-context analysis
 - (Optional) [Repomix](https://github.com/yamadashy/repomix) for intelligent file aggregation
-- (Optional) [Beads](https://github.com/johanyman/beads) for issue tracking
+- (Optional) [Beads](https://github.com/steveyegge/beads) for issue tracking
 
 ## Installation
 
 ```bash
-git clone https://github.com/johanyman/agentic-workflow.git
+git clone https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow.git
 cd agentic-workflow
 ./install.sh
 ```
