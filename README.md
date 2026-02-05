@@ -1,5 +1,9 @@
 # Agentic Workflow
 
+<p align="center">
+  <img src="logo.png" alt="Agentic Workflow Logo" width="300">
+</p>
+
 A multi-agent development workflow for Claude Code that orchestrates specialized AI agents through planning, implementation, and documentation phases.
 
 ## Why Agentic Workflow?
