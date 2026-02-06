@@ -4,41 +4,45 @@ View and modify workflow configuration settings.
 
 ## Command: /crew-config
 
-### Current Configuration
+### Display Current Configuration
 
-Read and display `~/.claude/crew-config.yaml`:
+1. Read `~/.claude/workflow-config.yaml`
+2. Parse the YAML and display the **actual values** in a formatted table
+3. Use `✓ Enabled` / `✗ Disabled` based on the real config values — do NOT use hardcoded defaults
+
+Display format:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Workflow Configuration                                       │
+│ Workflow Configuration (~/.claude/workflow-config.yaml)       │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │ PLANNING CHECKPOINTS                                         │
-│   After Architect:  ✓ Enabled                               │
-│   After Developer:  ✗ Disabled                              │
-│   After Reviewer:   ✓ Enabled                               │
-│   After Skeptic:    ✓ Enabled                               │
+│   After Architect:  <value from checkpoints.planning>        │
+│   After Developer:  <value>                                  │
+│   After Reviewer:   <value>                                  │
+│   After Skeptic:    <value>                                  │
 │                                                              │
 │ IMPLEMENTATION CHECKPOINTS                                   │
-│   At 25%:           ✗ Disabled                              │
-│   At 50%:           ✓ Enabled                               │
-│   At 75%:           ✗ Disabled                              │
-│   Before Commit:    ✓ Enabled                               │
+│   At 25%:           <value from checkpoints.implementation>  │
+│   At 50%:           <value>                                  │
+│   At 75%:           <value>                                  │
+│   Before Commit:    <value>                                  │
 │                                                              │
 │ FEEDBACK TRIGGERS                                            │
-│   On Deviation:     ✓ Enabled                               │
-│   On Test Failure:  ✓ Enabled                               │
-│   On Major Change:  ✓ Enabled                               │
+│   On Deviation:     <value from checkpoints.feedback>        │
+│   On Test Failure:  <value>                                  │
+│   On Major Change:  <value>                                  │
 │                                                              │
 │ MODELS                                                       │
-│   All agents:       opus                                     │
+│   <list each agent and its model from models section>        │
 │                                                              │
 │ PATHS                                                        │
-│   Knowledge Base:   docs/ai-context/                         │
-│   Task Directory:   .tasks/                                  │
+│   Knowledge Base:   <knowledge_base value>                   │
+│   Task Directory:   <task_directory value>                   │
 │                                                              │
 │ WORKFLOW MODE                                                │
-│   Default:          auto                                     │
+│   Default:          <workflow_mode.default_mode value>        │
 │   Modes: full | turbo | fast | minimal | auto                │
 │                                                              │
 │ EFFORT LEVELS                                                │
@@ -46,34 +50,42 @@ Read and display `~/.claude/crew-config.yaml`:
 │   Values: low | medium | high | max (max=Opus 4.6 only)     │
 │                                                              │
 │ COMPACTION                                                   │
-│   Enabled:          ✓                                        │
-│   Model:            compact-2026-01-12                       │
-│   Trigger:          80000 tokens                             │
-│   Pause after:      ✓ (re-inject state)                     │
+│   Enabled:          <compaction.enabled value>                │
+│   Model:            <compaction.model value>                  │
+│   Trigger:          <compaction.trigger_tokens value> tokens  │
+│   Pause after:      <compaction.pause_after_compaction value> │
 │                                                              │
 │ COST TRACKING                                                │
-│   Enabled:          ✓                                        │
-│   Show Summary:     ✓                                        │
+│   Enabled:          <cost_tracking.enabled value>             │
 │                                                              │
 │ AGENT TEAMS (experimental)                                   │
-│   Enabled:          ✗ Disabled                               │
-│   Parallel Review:  ✗ Disabled                               │
-│   Parallel Impl:    ✗ Disabled                               │
+│   Enabled:          <agent_teams.enabled value>               │
+│   Parallel Review:  <agent_teams.parallel_review.enabled>     │
+│   Parallel Impl:    <agent_teams.parallel_implementation...>  │
+│     Max Concurrent:  <max_concurrent_agents value>           │
+│     Independent Only: <require_independent_steps value>      │
 │                                                              │
 │ SUBAGENT LIMITS                                              │
-│   Planning:         30 turns                                 │
-│   Implementation:   50 turns                                 │
-│   Documentation:    20 turns                                 │
-│   Consultation:     15 turns                                 │
-│   Direct Tools:     ✓ (prefer Grep/Glob/Read over Task)     │
-│   Timeout:          300s                                     │
+│   Planning:         <subagent_limits.max_turns.planning_agents> turns │
+│   Implementation:   <subagent_limits.max_turns.implementation_agents> turns │
+│   Documentation:    <subagent_limits.max_turns.documentation_agents> turns │
+│   Consultation:     <subagent_limits.max_turns.consultation_agents> turns │
+│   Direct Tools:     <subagent_limits.prefer_direct_tools>    │
+│   Timeout:          <subagent_limits.agent_timeout>s         │
+│                                                              │
+│ PARALLELIZATION                                              │
+│   Enabled:          <parallelization.enabled value>           │
+│   Timeout:          <parallelization.timeout_seconds value>s  │
+│   Merge Strategy:   <parallelization.merge_strategy value>    │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+Also check for project-level overrides at `<repo>/.claude/workflow-config.yaml` and display any differences.
+
 ### Interactive Configuration
 
-Ask the user what they want to change:
+After displaying, ask the user what they want to change:
 
 **Checkpoint Settings:**
 - "Which planning checkpoints should require approval?"
@@ -108,8 +120,8 @@ Offer preset configurations:
 ### Apply Changes
 
 After getting user preferences:
-1. Update `~/.claude/crew-config.yaml`
+1. Update `~/.claude/workflow-config.yaml`
 2. Confirm changes
 3. Show new configuration
 
-Now, display current configuration and ask what the user wants to change.
+Now, read `~/.claude/workflow-config.yaml`, display the current configuration with actual values, and ask what the user wants to change.
