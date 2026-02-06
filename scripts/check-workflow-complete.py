@@ -62,8 +62,11 @@ def main():
         "architect": "Architect",
         "developer": "Developer",
         "reviewer": "Reviewer",
+        "skeptic": "Skeptic",
         "implementer": "Implementer",
-        "technical_writer": "Technical Writer"
+        "feedback": "Feedback",
+        "technical_writer": "Technical Writer",
+        "technical-writer": "Technical Writer",
     }
 
     missing_name = phase_names.get(missing_phase, missing_phase)

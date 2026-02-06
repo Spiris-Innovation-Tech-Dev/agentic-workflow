@@ -68,9 +68,9 @@ def _find_active_task_dir() -> Optional[Path]:
             if state_file.exists():
                 with open(state_file) as f:
                     state = json.load(f)
-                    completed = set(state.get("phases_completed", []))
+                    completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
                     if state.get("phase"):
-                        completed.add(state["phase"])
+                        completed.add(_normalize_phase(state["phase"]))
                     missing = [p for p in REQUIRED_PHASES if p not in completed]
                     if missing:
                         active_tasks.append((task_dir, state.get("updated_at", "")))
@@ -138,12 +138,17 @@ def _get_next_task_id() -> str:
     return f"TASK_{next_num:03d}"
 
 
+def _normalize_phase(phase: str) -> str:
+    return phase.strip().lower().replace("-", "_")
+
+
 def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
+    to_phase = _normalize_phase(to_phase)
     if to_phase not in PHASE_ORDER:
         return False, f"Invalid phase: {to_phase}"
 
-    current = state.get("phase")
-    phases_completed = state.get("phases_completed", [])
+    current = _normalize_phase(state["phase"]) if state.get("phase") else None
+    phases_completed = [_normalize_phase(p) for p in state.get("phases_completed", [])]
 
     if current is None:
         if to_phase == "architect":
@@ -208,6 +213,7 @@ def workflow_transition(
     to_phase: str,
     task_id: Optional[str] = None
 ) -> dict[str, Any]:
+    to_phase = _normalize_phase(to_phase)
     task_dir = find_task_dir(task_id)
     if not task_dir:
         return {
@@ -257,9 +263,9 @@ def workflow_get_state(task_id: Optional[str] = None) -> dict[str, Any]:
 
     state = _load_state(task_dir)
 
-    completed = set(state.get("phases_completed", []))
+    completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
     if state.get("phase"):
-        completed.add(state["phase"])
+        completed.add(_normalize_phase(state["phase"]))
     missing = [p for p in REQUIRED_PHASES if p not in completed]
     is_complete = len(missing) == 0
 
@@ -370,8 +376,8 @@ def workflow_complete_phase(task_id: Optional[str] = None) -> dict[str, Any]:
         state["phases_completed"].append(current)
         _save_state(task_dir, state)
 
-    completed = set(state.get("phases_completed", []))
-    completed.add(current)
+    completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
+    completed.add(_normalize_phase(current))
     missing = [p for p in REQUIRED_PHASES if p not in completed]
 
     return {
@@ -392,9 +398,9 @@ def workflow_is_complete(task_id: Optional[str] = None) -> dict[str, Any]:
 
     state = _load_state(task_dir)
 
-    completed = set(state.get("phases_completed", []))
+    completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
     if state.get("phase"):
-        completed.add(state["phase"])
+        completed.add(_normalize_phase(state["phase"]))
 
     missing = [p for p in REQUIRED_PHASES if p not in completed]
     is_complete = len(missing) == 0
@@ -411,6 +417,7 @@ def workflow_can_transition(
     to_phase: str,
     task_id: Optional[str] = None
 ) -> dict[str, Any]:
+    to_phase = _normalize_phase(to_phase)
     task_dir = find_task_dir(task_id)
     if not task_dir:
         return {
@@ -446,9 +453,9 @@ def workflow_can_stop(task_id: Optional[str] = None) -> dict[str, Any]:
             "reason": "Workflow not started"
         }
 
-    completed = set(state.get("phases_completed", []))
+    completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
     if state.get("phase"):
-        completed.add(state["phase"])
+        completed.add(_normalize_phase(state["phase"]))
 
     missing = [p for p in REQUIRED_PHASES if p not in completed]
 
@@ -463,7 +470,9 @@ def workflow_can_stop(task_id: Optional[str] = None) -> dict[str, Any]:
         "architect": "Architect",
         "developer": "Developer",
         "reviewer": "Reviewer",
+        "skeptic": "Skeptic",
         "implementer": "Implementer",
+        "feedback": "Feedback",
         "technical_writer": "Technical Writer"
     }
 
@@ -490,9 +499,9 @@ def list_tasks() -> list[dict[str, Any]]:
             state_file = task_dir / "state.json"
             if state_file.exists():
                 state = _load_state(task_dir)
-                completed = set(state.get("phases_completed", []))
+                completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
                 if state.get("phase"):
-                    completed.add(state["phase"])
+                    completed.add(_normalize_phase(state["phase"]))
                 missing = [p for p in REQUIRED_PHASES if p not in completed]
 
                 tasks.append({

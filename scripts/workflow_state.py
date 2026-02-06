@@ -43,6 +43,10 @@ REQUIRED_PHASES = [
 ]
 
 
+def normalize_phase(phase: str) -> str:
+    return phase.strip().lower().replace("-", "_")
+
+
 class WorkflowState:
     """Manages workflow state for a single task."""
 
@@ -142,6 +146,7 @@ class WorkflowState:
         Returns:
             Tuple of (can_transition, reason)
         """
+        to_phase = normalize_phase(to_phase)
         if to_phase not in PHASE_ORDER:
             return False, f"Invalid phase: {to_phase}"
 
@@ -178,6 +183,7 @@ class WorkflowState:
         Returns:
             Tuple of (success, message)
         """
+        to_phase = normalize_phase(to_phase)
         can, reason = self.can_transition(to_phase)
         if not can:
             return False, reason
@@ -314,9 +320,9 @@ class WorkflowState:
         Returns:
             Tuple of (is_complete, missing_phase or None)
         """
-        completed = set(self.phases_completed)
+        completed = set(normalize_phase(p) for p in self.phases_completed)
         if self.phase:
-            completed.add(self.phase)
+            completed.add(normalize_phase(self.phase))
 
         for phase in REQUIRED_PHASES:
             if phase not in completed:
