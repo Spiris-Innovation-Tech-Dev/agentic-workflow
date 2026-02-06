@@ -40,7 +40,7 @@ The agentic-workflow MCP server provides tools for AI agents. Key tool groups:
 ### Memory & Context
 - `workflow_save_discovery` - Save learnings
 - `workflow_get_discoveries` - Retrieve learnings
-- `workflow_flush_context` - Get all learnings for reload
+- `workflow_flush_context` - Get all learnings for reload (superseded by compaction when enabled)
 - `workflow_search_memories` - Search across tasks
 - `workflow_get_context_usage` - Check context pressure
 - `workflow_prune_old_outputs` - Clean up old files
@@ -51,6 +51,24 @@ The agentic-workflow MCP server provides tools for AI agents. Key tool groups:
 - `workflow_get_state` - Get current state
 - `workflow_complete_phase` - Mark phase done
 
+### Workflow Modes & Effort
+- `workflow_detect_mode` - Auto-detect mode from task description
+- `workflow_set_mode` / `workflow_get_mode` - Set/get workflow mode (full/turbo/fast/minimal)
+- `workflow_is_phase_in_mode` - Check if a phase runs in current mode
+- `workflow_get_effort_level` - Get recommended thinking depth for an agent
+
+### Cost Tracking
+- `workflow_record_cost` - Record token usage (input, output, compaction tokens)
+- `workflow_get_cost_summary` - Get cost breakdown by agent and model
+
+### Agent Teams (Experimental)
+- `workflow_get_agent_team_config` - Check if agent teams are enabled for a feature (`parallel_review`, `parallel_implementation`)
+
+### Parallelization
+- `workflow_start_parallel_phase` - Start parallel agent execution
+- `workflow_complete_parallel_phase` - Mark a parallel phase done
+- `workflow_merge_parallel_results` - Merge and deduplicate parallel results
+
 ### Task Linking
 - `workflow_link_tasks` - Connect related tasks
 - `workflow_get_linked_tasks` - Find related tasks
@@ -59,5 +77,10 @@ The agentic-workflow MCP server provides tools for AI agents. Key tool groups:
 - `workflow_record_model_error` - Track model failures
 - `workflow_get_available_model` - Get fallback model
 - `workflow_get_resilience_status` - Check model health
+
+### Quality & Assertions
+- `workflow_add_assertion` / `workflow_verify_assertion` - Define and verify quality assertions
+- `workflow_record_error_pattern` / `workflow_match_error` - Learn from and match error patterns
+- `workflow_record_concern_outcome` / `workflow_get_agent_performance` - Track agent precision
 
 See the MCP server source at `mcp/agentic-workflow-server/` for full API documentation.

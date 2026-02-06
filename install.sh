@@ -3,9 +3,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
+VERSION=$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "unknown")
 
 echo "========================================"
-echo "  Agentic Workflow Installer"
+echo "  Agentic Workflow Installer v${VERSION}"
 echo "========================================"
 echo ""
 
@@ -230,7 +231,7 @@ fi
 
 echo ""
 echo "========================================"
-echo "  Installation complete!"
+echo "  Installation complete! (v${VERSION})"
 echo "========================================"
 echo ""
 echo "Enforced workflow now active with:"

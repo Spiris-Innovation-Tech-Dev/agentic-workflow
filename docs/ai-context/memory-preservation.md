@@ -6,6 +6,17 @@ This document describes how AI agents can preserve critical learnings across con
 
 When Claude's context window fills up, older content is compacted (summarized or dropped). Critical insights discovered during a task - debugging findings, human preferences, architectural decisions - can be lost. This forces agents to re-discover the same things repeatedly.
 
+## Server-Side Compaction
+
+The Anthropic API now supports server-side compaction (`compact-2026-01-12`) which auto-summarizes conversation context before it hits limits. When `compaction.enabled: true` in workflow config:
+
+- The API automatically summarizes older turns rather than dropping them
+- Custom instructions preserve task ID, workflow phase, progress, and active concerns
+- After compaction fires, workflow state and discoveries are re-injected
+- Compaction token costs are tracked via `workflow_record_cost(compaction_tokens=N)`
+
+This largely replaces manual `workflow_flush_context` usage. However, the discovery tools below remain valuable for cross-task learning and explicit state preservation.
+
 ## The Solution
 
 Three MCP tools allow agents to save discoveries to persistent storage before compaction occurs:

@@ -56,6 +56,24 @@ models:
   feedback: opus               # Receives focused files for comparison
   technical-writer: opus       # Documents findings and validates ai-context docs
 
+# Subagent Limits
+# Prevents runaway discovery loops where agents spawn subagents that loop for hours
+# The reported issue: Opus 4.6 aggressively spawns Task subagents for exploration
+# that a direct Grep/Glob/Read would answer in seconds
+subagent_limits:
+  # Max API round-trips (turns) per spawned agent
+  max_turns:
+    planning_agents: 30            # Architect, Developer, Reviewer, Skeptic
+    implementation_agents: 50      # Implementer (needs more turns for multi-step work)
+    documentation_agents: 20       # Technical Writer
+    consultation_agents: 15        # /crew ask single-agent consultations
+
+  # Agents should prefer direct tools over spawning sub-subagents
+  prefer_direct_tools: true        # Include tool discipline guidance in agent prompts
+
+  # Timeout for any single agent run (seconds)
+  agent_timeout: 300               # 5 minutes — escalate if exceeded
+
 # Auto-actions (what agents can do without asking)
 auto_actions:
   run_tests: true              # Agents can run tests automatically
@@ -78,6 +96,8 @@ repomix:
 gemini_research:
   enabled: true                     # Master switch for Gemini-enhanced research
   fallback_to_opus: true            # Use Opus with direct context if Gemini unavailable
+  prefer_native_context: true       # Skip Gemini if repomix output fits in Opus 4.6's 1M context
+  native_context_threshold_kb: 800  # Max repomix output size (KB) to pass directly to Opus
 
   # Research agents receive Gemini-analyzed context
   research_agents:
@@ -101,7 +121,7 @@ gemini_research:
     include_referenced: true        # Include files referenced by task-relevant code
     include_examples: true          # Find similar patterns/examples in codebase
     include_docs: true              # Include README, docs/, ai-context/
-    max_files: 100                  # Limit to prevent context explosion
+    max_files: 200                  # Limit to prevent context explosion
 
   # Gemini analysis prompt (comprehensive, produces sections for each agent)
   analysis_prompt: |
@@ -215,8 +235,10 @@ resilience:
 
   # Fallback chain - models tried in order when primary fails
   fallback_chain:
-    - model: claude-opus-4
+    - model: claude-opus-4-6
       timeout: 120                  # Seconds before timeout
+    - model: claude-opus-4
+      timeout: 120
     - model: claude-sonnet-4
       timeout: 60
     - model: gemini
@@ -268,6 +290,19 @@ context_management:
     - "reviewer.md"
     - "skeptic.md"
 
+# Server-Side Compaction (Anthropic API beta)
+# Auto-summarizes conversation when approaching context limits
+compaction:
+  enabled: true
+  model: "compact-2026-01-12"        # Compaction model
+  trigger_tokens: 80000              # Min tokens before compaction triggers
+  pause_after_compaction: true       # Pause to inject workflow state after compaction
+  instructions: |
+    Preserve: current task ID, workflow phase, implementation progress,
+    active concerns, file paths being modified, test status.
+    Discard: verbose tool outputs, intermediate search results,
+    full file contents already processed.
+
 # Cross-Task Memory
 # Enable learning from previous tasks
 memory:
@@ -312,6 +347,14 @@ workflow_modes:
         - technical_writer
       estimated_cost: "$0.50+"
 
+    turbo:
+      description: "Developer plans comprehensively in one pass - standard features with Opus 4.6"
+      phases:
+        - developer
+        - implementer
+        - technical_writer
+      estimated_cost: "$0.15"
+
     fast:
       description: "Skip Skeptic and Feedback - standard changes"
       phases:
@@ -343,6 +386,21 @@ workflow_modes:
       max_files_affected: 1
       no_tests_required: true
 
+    turbo:
+      # Opus 4.6 single-pass planning for standard work
+      keywords:
+        - add feature
+        - implement
+        - update
+        - refactor
+        - add
+        - create
+        - build
+        - utility
+      no_security_changes: true
+      no_database_changes: true
+      no_api_changes: true
+
     fast:
       # Use fast mode for these patterns
       keywords:
@@ -368,6 +426,34 @@ workflow_modes:
       multiple_systems: true
       requires_review: true
 
+# Effort Levels (maps to Anthropic API parameters)
+# When calling Messages API:
+#   thinking: {"type": "adaptive"}   — Claude decides thinking depth
+#   output_config: {"effort": "<level>"}  — from table below
+# Values: low | medium | high | max (max is Opus 4.6 only)
+effort_levels:
+  full:
+    architect: max
+    developer: max
+    reviewer: high
+    skeptic: max
+    implementer: high
+    feedback: high
+    technical_writer: medium
+  turbo:
+    developer: max
+    implementer: high
+    technical_writer: medium
+  fast:
+    architect: high
+    developer: high
+    reviewer: high
+    implementer: high
+    technical_writer: medium
+  minimal:
+    developer: medium
+    implementer: medium
+
 # Parallelization Configuration
 parallelization:
   # Run Reviewer and Skeptic in parallel
@@ -376,20 +462,41 @@ parallelization:
     timeout_seconds: 300
     merge_strategy: deduplicate     # deduplicate | combine | prioritize_reviewer
 
+# Agent Teams (experimental — Claude Code agent teams feature)
+# Enables real multi-agent collaboration via CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+# Requires: Claude Code with agent teams support
+agent_teams:
+  enabled: false                      # Set to true to use real agent teams
+
+  # Parallel review — Reviewer and Skeptic as real teammates
+  parallel_review:
+    enabled: false
+    delegate_mode: true               # Lead agent coordinates only, doesn't execute
+    plan_approval: true               # Require plan approval before execution
+
+  # Parallel implementation — implementation steps as self-claimed tasks
+  parallel_implementation:
+    enabled: false
+    max_concurrent_agents: 3          # Max parallel implementers
+    require_independent_steps: true   # Only parallelize independent steps
+
 # Cost Tracking
 cost_tracking:
   enabled: true
   # Model costs per million tokens (approximate)
   model_costs:
     opus:
-      input_per_million: 15.00
-      output_per_million: 75.00
+      input_per_million: 5.00
+      output_per_million: 25.00
+    opus_long_context:
+      input_per_million: 10.00
+      output_per_million: 37.50
     sonnet:
       input_per_million: 3.00
       output_per_million: 15.00
     haiku:
-      input_per_million: 0.25
-      output_per_million: 1.25
+      input_per_million: 0.80
+      output_per_million: 4.00
   # Show cost summary at workflow completion
   show_summary: true
   # Store cost history

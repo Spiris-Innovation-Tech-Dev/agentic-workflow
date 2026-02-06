@@ -21,11 +21,17 @@ Complex development tasks require multiple perspectives: architecture considerat
 
 - **Multi-agent architecture** - 7 specialized agents for different concerns
 - **Single agent consultation** - Quick `/crew ask` for second opinions without full workflow
+- **Workflow modes** - Full, turbo, fast, minimal modes for different task complexity (`--mode`)
 - **Human checkpoints** - Control points for review and approval at each phase
 - **Loop mode** - Autonomous iteration until tests/build pass (Ralph Wiggum-style)
+- **Effort levels** - Per-agent thinking depth calibration mapped to Anthropic API parameters
+- **Server-side compaction** - Auto-summarizes conversation context approaching limits
+- **Cost tracking** - Per-agent token usage and cost tracking with compaction support
 - **Configuration cascade** - Global → Project → Task → CLI overrides
 - **Gemini + Repomix integration** - Large-context codebase analysis for research phases
 - **State management** - Resume interrupted workflows from any point
+- **Model resilience** - Automatic failover with exponential backoff across model fallback chain
+- **Agent teams** - Experimental parallel agent execution via Claude Code agent teams
 - **Beads integration** - Optional issue tracking integration
 - **Technical documentation** - Automatic AI-context documentation updates
 
@@ -237,11 +243,13 @@ Main command for starting or resuming workflows.
 
 | Option | Description |
 |--------|-------------|
+| `--mode <mode>` | Workflow mode: `full`, `turbo`, `fast`, `minimal`, `auto` (default: auto) |
 | `--loop-mode` | Enable autonomous looping until verification passes |
 | `--no-loop` | Disable loop mode |
 | `--max-iterations <n>` | Max attempts per step (default: 10) |
 | `--verify <method>` | Verification: `tests`, `build`, `lint`, `all`, `custom` |
 | `--no-checkpoints` | Skip human checkpoints (fully autonomous) |
+| `--parallel` | Run Reviewer+Skeptic in parallel |
 | `--beads <issue>` | Link to beads issue (e.g., `AUTH-42`) |
 | `--task <file>` | Read task from markdown file |
 
@@ -450,6 +458,105 @@ beads:
   add_comments: true           # Add progress comments
 ```
 
+#### Workflow Modes
+
+```yaml
+workflow_modes:
+  default: auto                  # auto | full | turbo | fast | minimal
+```
+
+| Mode | Agents | Use Case | Est. Cost |
+|------|--------|----------|-----------|
+| **full** | All 7 (Arch, Dev, Rev, Skeptic, Impl, Feedback, TW) | Complex features, critical changes | $0.50+ |
+| **turbo** | Developer, Implementer, Technical Writer | Standard features (Opus 4.6 single-pass) | $0.15 |
+| **fast** | Skip Skeptic and Feedback | Standard changes needing review | $0.25 |
+| **minimal** | Developer and Implementer only | Simple fixes, typos | $0.10 |
+| **auto** | Auto-detect based on task description | Default | varies |
+
+#### Effort Levels
+
+Per-agent thinking depth, mapped to Anthropic API parameters (`thinking: {"type": "adaptive"}`, `output_config: {"effort": "<level>"}`):
+
+```yaml
+effort_levels:
+  full:
+    architect: max               # Deep analysis with edge cases
+    developer: max
+    reviewer: high
+    skeptic: max
+    implementer: high
+    feedback: high
+    technical_writer: medium
+  turbo:
+    developer: max
+    implementer: high
+    technical_writer: medium
+  # ... fast, minimal modes also defined
+```
+
+Values: `low` | `medium` | `high` | `max` (`max` is Opus 4.6 only; other models cap at `high`).
+
+#### Compaction
+
+Server-side conversation compaction via Anthropic API beta:
+
+```yaml
+compaction:
+  enabled: true
+  model: "compact-2026-01-12"   # Compaction model
+  trigger_tokens: 80000         # Min tokens before compaction triggers
+  pause_after_compaction: true  # Re-inject workflow state after compaction
+  instructions: |
+    Preserve: current task ID, workflow phase, implementation progress,
+    active concerns, file paths being modified, test status.
+    Discard: verbose tool outputs, intermediate search results,
+    full file contents already processed.
+```
+
+When enabled, compaction auto-summarizes older conversation turns rather than dropping them. This replaces manual `workflow_flush_context` for context management.
+
+#### Cost Tracking
+
+```yaml
+cost_tracking:
+  enabled: true
+  show_summary: true             # Display at workflow completion
+  store_history: true
+```
+
+Tracks per-agent token usage (input, output, compaction) and calculates cost. Opus uses long-context pricing ($10/$37.50 per M) for >200K input tokens.
+
+#### Agent Teams (Experimental)
+
+```yaml
+agent_teams:
+  enabled: false                 # Requires Claude Code agent teams support
+  parallel_review:
+    enabled: false               # Reviewer+Skeptic as real teammates
+  parallel_implementation:
+    enabled: false               # Implementation steps as self-claimed tasks
+    max_concurrent_agents: 3
+```
+
+When enabled, uses `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` for real multi-agent collaboration. Disabled by default — no behavior change for existing workflows.
+
+#### Subagent Limits
+
+Prevents runaway discovery loops where agents spawn subagents that loop for hours:
+
+```yaml
+subagent_limits:
+  max_turns:
+    planning_agents: 30          # Architect, Developer, Reviewer, Skeptic
+    implementation_agents: 50    # Implementer
+    documentation_agents: 20     # Technical Writer
+    consultation_agents: 15      # /crew ask
+  prefer_direct_tools: true      # Include tool discipline in agent prompts
+  agent_timeout: 300             # 5 minutes per agent
+```
+
+All agents include "Tool Discipline" guidance: use Grep/Glob/Read directly instead of spawning Task subagents for codebase exploration.
+
 #### Auto-actions
 
 ```yaml
@@ -516,7 +623,7 @@ Agents can save discoveries to persistent memory that survives context compactio
         └── discoveries.jsonl    # Agent learnings in JSONL format
 ```
 
-**MCP Tools:**
+**Memory MCP Tools:**
 
 | Tool | Purpose |
 |------|---------|
@@ -524,6 +631,15 @@ Agents can save discoveries to persistent memory that survives context compactio
 | `workflow_get_discoveries` | Retrieve saved learnings |
 | `workflow_flush_context` | Get all learnings grouped by category (for context reload) |
 | `workflow_search_memories` | Search learnings across multiple tasks |
+
+**Workflow Control MCP Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `workflow_get_effort_level` | Get recommended thinking effort for an agent |
+| `workflow_record_cost` | Record token usage and cost (including compaction tokens) |
+| `workflow_get_cost_summary` | Get cost breakdown by agent and model |
+| `workflow_get_agent_team_config` | Check if agent teams are enabled for a feature |
 
 **Discovery Categories:**
 
@@ -661,6 +777,30 @@ Task state in `.tasks/` is preserved.
 3. Make your changes
 4. Test with `./install.sh` in a test environment
 5. Submit a pull request
+
+### Releasing a New Version
+
+This project uses [Semantic Versioning](https://semver.org/). Version is tracked in three files that must stay in sync:
+
+| File | Field |
+|---|---|
+| `VERSION` | Plain text, read by `install.sh` |
+| `mcp/agentic-workflow-server/pyproject.toml` | `version = "X.Y.Z"` |
+| `mcp/agentic-workflow-server/agentic_workflow_server/__init__.py` | `__version__ = "X.Y.Z"` |
+
+**When to bump:**
+
+- **Patch** (`0.2.0` → `0.2.1`) — bug fixes, typo corrections, minor doc updates
+- **Minor** (`0.2.0` → `0.3.0`) — new features, new MCP tools, new agents, config additions
+- **Major** (`0.2.0` → `1.0.0`) — breaking changes to config format, MCP tool signatures, or agent contracts
+
+**Steps:**
+
+1. Update all three version files listed above
+2. Add a dated entry to `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format
+3. Run tests: `cd mcp/agentic-workflow-server && python3 -m pytest tests/ -v`
+4. Run `./install.sh` to verify the version displays correctly
+5. Commit with: `chore(release): bump to vX.Y.Z`
 
 ## License
 

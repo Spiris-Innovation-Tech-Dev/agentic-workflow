@@ -75,9 +75,30 @@ When deciding what to do next:
    - If concerns raised → May need iteration or human input
    - If clean → Proceed to next agent
 
+## Effort Levels
+
+Before spawning each agent, query the recommended thinking effort level:
+
+```
+workflow_get_effort_level(agent: "architect")
+→ { "effort": "max", "mode": "full" }
+```
+
+Include the effort level in the agent's prompt context so it can calibrate its analysis depth. The effort levels map workflow modes to appropriate thinking depth:
+- **max**: Deep analysis with edge cases — planning agents in full mode
+- **high**: Thorough but focused — most implementation agents
+- **medium**: Standard analysis — documentation and simple tasks
+- **low**: Quick pass — unused in current modes
+
+When using the Messages API, map effort levels to API parameters:
+- Use `thinking: {"type": "adaptive"}` — lets Claude decide thinking depth automatically
+- Use `output_config: {"effort": "<level>"}` where level is the value from `workflow_get_effort_level`
+- `max` effort is Opus 4.6 only; other models cap at `high`
+- Lower effort = fewer tool calls, less preamble, faster responses
+
 ## Spawning Agents
 
-Use the Task tool to spawn specialized agents:
+Use the Task tool to spawn specialized agents. Always set `max_turns` from config to prevent runaway discovery loops:
 
 ```
 Task(
@@ -86,9 +107,57 @@ Task(
            [Include current context]
            [Include knowledge base]
            [Include task description]",
-  model: "opus"
+  model: "opus",
+  max_turns: 30   // from subagent_limits.max_turns.planning_agents
 )
 ```
+
+**`max_turns` by agent type** (from `subagent_limits.max_turns` in config):
+- Planning agents (architect, developer, reviewer, skeptic): **30**
+- Implementation agents (implementer): **50**
+- Documentation agents (technical_writer): **20**
+- Consultation agents (`/crew ask`): **15**
+
+These caps prevent the reported issue where Opus 4.6 spawns discovery subagents that loop for hours. If an agent hits its turn limit, it returns what it has — which is almost always sufficient.
+
+## Context Strategy
+
+With Opus 4.6's 1M token context window, the decision tree for context preparation is:
+
+1. **Repomix output <= 800KB** (configurable via `native_context_threshold_kb`):
+   - Skip Gemini analysis entirely
+   - Pass repomix output directly to Opus agents as inline context
+   - Faster, cheaper, no external dependency
+2. **Repomix output > 800KB**:
+   - Run Gemini analysis to compress and structure the context
+   - Extract per-agent sections (ARCHITECTURAL_CONTEXT, etc.)
+   - Pass structured sections to agents
+3. **Gemini unavailable** (and `fallback_to_opus: true`):
+   - Pass repomix output directly regardless of size
+   - Opus 4.6 can handle up to ~800K tokens of input
+
+Check `state.json` → `context_preparation.status` to determine which path was taken. If `status: "skipped"`, use the repomix output directly.
+
+## Compaction
+
+When using the Messages API directly, configure server-side compaction to auto-summarize conversations approaching context limits:
+
+- Include `betas: ["interleaved-thinking-2025-05-14"]` and set the compaction system message with `model: "compact-2026-01-12"`
+- Set `pause_after_compaction: true` in config to re-inject `state.json` after compaction occurs
+- The `iterations` array in the response contains compaction cost data — pass `compaction_tokens` to `workflow_record_cost`
+- Custom compaction instructions should preserve: task ID, workflow phase, implementation progress, active concerns, file paths being modified, test status
+
+Compaction replaces manual `workflow_flush_context` for context management. When compaction is enabled, the API automatically summarizes older conversation turns rather than dropping them. After compaction fires, reload workflow state and discoveries to ensure continuity.
+
+## Agent Teams
+
+Before spawning Reviewer+Skeptic in parallel, check `workflow_get_agent_team_config("parallel_review")`:
+- If `enabled: true`: Use `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` to launch real teammate agents with shared task list and inter-agent messaging
+- If `enabled: false`: Use existing `workflow_start_parallel_phase` / background Task approach
+
+Before the implementation loop, check `workflow_get_agent_team_config("parallel_implementation")`:
+- If `enabled: true`: Analyze the plan for independent steps, create TaskCreate entries for each, and launch agent team with `delegate_mode: true` where agents self-claim tasks
+- If `enabled: false`: Use existing sequential implementation loop
 
 ## Context-Aware Agent Spawning
 

@@ -39,7 +39,7 @@ These options override configuration file settings for this task only:
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--mode <mode>` | Workflow mode: full\|fast\|minimal\|auto | `--mode fast` |
+| `--mode <mode>` | Workflow mode: full\|turbo\|fast\|minimal\|auto | `--mode turbo` |
 | `--loop-mode` | Enable Ralph-style autonomous looping | `--loop-mode` |
 | `--no-loop` | Disable loop mode (even if config enables it) | `--no-loop` |
 | `--max-iterations <n>` | Set max iterations per step | `--max-iterations 20` |
@@ -57,13 +57,15 @@ The `--mode` option controls which agents run:
 | Mode | Agents | Use Case | Est. Cost |
 |------|--------|----------|-----------|
 | **full** | All 7 (Arch, Dev, Rev, Skeptic, Impl, Feedback, TW) | Complex features, critical changes | $0.50+ |
-| **fast** | Skip Skeptic and Feedback | Standard changes | $0.25 |
+| **turbo** | Developer, Implementer, Technical Writer | Standard features (Opus 4.6 single-pass) | $0.15 |
+| **fast** | Skip Skeptic and Feedback | Standard changes needing review | $0.25 |
 | **minimal** | Developer and Implementer only | Simple fixes, typos | $0.10 |
 | **auto** | Auto-detect based on task description | Default | varies |
 
 **Auto-detection rules:**
 - `minimal`: Keywords like "typo", "simple fix", "rename"; single file affected
-- `fast`: Standard keywords without security/auth/DB mentions
+- `turbo`: Standard feature work without security/auth/DB/API concerns (leverages Opus 4.6 comprehensive planning)
+- `fast`: Standard keywords without security/auth/DB mentions (when turbo not matched)
 - `full`: Security, authentication, database, API, breaking changes
 
 ### Task Description Patterns
@@ -237,6 +239,7 @@ When `/crew ask <agent> <question>` is detected:
 Task(
   subagent_type: "general-purpose",
   model: "[from --model or default opus]",
+  max_turns: 15,  // from subagent_limits.max_turns.consultation_agents
   prompt: "
 [Insert contents of ~/.claude/agents/<agent>.md]
 
@@ -311,11 +314,12 @@ Determine and set the workflow mode:
 3. **Call `workflow_set_mode`** MCP tool to store mode in state
 
 ```
-workflow_set_mode(mode: "auto" | "full" | "fast" | "minimal")
+workflow_set_mode(mode: "auto" | "full" | "turbo" | "fast" | "minimal")
 ```
 
 The mode determines which phases run:
 - **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical_writer
+- **turbo**: developer → implementer → technical_writer (Opus 4.6 single-pass planning)
 - **fast**: architect → developer → reviewer → implementer → technical_writer
 - **minimal**: developer → implementer
 
@@ -576,6 +580,7 @@ Launch the Architect agent first using the Task tool:
 Task(
   subagent_type: "general-purpose",
   model: "opus",
+  max_turns: 30,  // from subagent_limits.max_turns.planning_agents
   prompt: "
 [Insert contents of ~/.claude/agents/architect.md]
 
@@ -644,11 +649,21 @@ At each step:
 
 When `--parallel` flag is set or `parallelization.reviewer_skeptic.enabled: true` in config:
 
+**Check for agent teams first**: Call `workflow_get_agent_team_config("parallel_review")`.
+
+**If agent teams enabled** (`agent_teams.parallel_review.enabled: true`):
+1. Set environment: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+2. Launch Reviewer and Skeptic as real teammate agents with shared task list
+3. Lead agent coordinates only (`delegate_mode: true`), doesn't execute review itself
+4. Teammates communicate findings via inter-agent messaging
+5. Require plan approval before proceeding (`plan_approval: true`)
+
+**If agent teams not enabled** (default):
 1. After Developer completes, call `workflow_start_parallel_phase(["reviewer", "skeptic"])`
 2. Spawn both agents simultaneously using parallel Task calls:
    ```
-   Task(subagent_type: "general-purpose", prompt: "[Reviewer prompt]", run_in_background: true)
-   Task(subagent_type: "general-purpose", prompt: "[Skeptic prompt]", run_in_background: true)
+   Task(subagent_type: "general-purpose", prompt: "[Reviewer prompt]", max_turns: 30, run_in_background: true)
+   Task(subagent_type: "general-purpose", prompt: "[Skeptic prompt]", max_turns: 30, run_in_background: true)
    ```
 3. Wait for both to complete (use TaskOutput with block=true)
 4. For each completed agent, call `workflow_complete_parallel_phase(phase, summary, concerns)`
@@ -714,6 +729,19 @@ For each implementation step:
 4. Make minimal changes
 5. If same error 3x, try fundamentally different approach
 
+#### Agent Team Implementation
+
+When `agent_teams.parallel_implementation.enabled` is true (check via `workflow_get_agent_team_config("parallel_implementation")`):
+
+1. **Analyze plan for independence**: Orchestrator reviews the implementation plan and identifies steps that can run concurrently (no shared file dependencies, no ordering constraints)
+2. **Create task entries**: Use TaskCreate for each independent implementation step with clear scope and acceptance criteria
+3. **Launch agent team**: Set `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and launch with `delegate_mode: true`
+4. **Self-claim execution**: Agents self-claim tasks from the shared task list, executing implementation steps in parallel
+5. **Coherence check**: After all steps complete, run the Feedback agent to verify cross-step coherence and integration
+6. **Constraints**: Respect `max_concurrent_agents` (default: 3) and `require_independent_steps` (only parallelize truly independent steps)
+
+When `parallel_implementation` is not enabled, use the existing sequential implementation loop from Step 7.
+
 ### Step 8: Documentation Phase
 
 After implementation completes, launch the Technical Writer agent:
@@ -722,6 +750,7 @@ After implementation completes, launch the Technical Writer agent:
 Task(
   subagent_type: "general-purpose",
   model: "opus",
+  max_turns: 20,  // from subagent_limits.max_turns.documentation_agents
   prompt: "
 [Insert contents of ~/.claude/agents/technical-writer.md]
 

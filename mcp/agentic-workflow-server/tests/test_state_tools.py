@@ -58,6 +58,10 @@ from agentic_workflow_server.state_tools import (
     workflow_set_mode,
     workflow_get_mode,
     workflow_is_phase_in_mode,
+    # Effort levels
+    workflow_get_effort_level,
+    # Agent teams
+    workflow_get_agent_team_config,
     # Cost tracking
     workflow_record_cost,
     workflow_get_cost_summary,
@@ -360,7 +364,7 @@ class TestModelResilience:
 
     def test_record_model_error(self, clean_tasks_dir):
         result = workflow_record_model_error(
-            model="claude-opus-4",
+            model="claude-opus-4-6",
             error_type="rate_limit",
             error_message="429 Too Many Requests"
         )
@@ -393,16 +397,17 @@ class TestModelResilience:
 
     def test_get_available_model_fallback(self, clean_tasks_dir):
         # Put primary model in cooldown
-        workflow_record_model_error("claude-opus-4", "rate_limit")
+        workflow_record_model_error("claude-opus-4-6", "rate_limit")
 
-        result = workflow_get_available_model(preferred_model="claude-opus-4")
+        result = workflow_get_available_model(preferred_model="claude-opus-4-6")
 
         assert result["available"] is True
-        assert result["model"] == "claude-sonnet-4"  # Fallback
+        assert result["model"] == "claude-opus-4"  # Second in fallback chain
         assert result["is_fallback"] is True
 
     def test_all_models_in_cooldown(self, clean_tasks_dir):
         # Put all models in cooldown
+        workflow_record_model_error("claude-opus-4-6", "rate_limit")
         workflow_record_model_error("claude-opus-4", "rate_limit")
         workflow_record_model_error("claude-sonnet-4", "rate_limit")
         workflow_record_model_error("gemini", "rate_limit")
@@ -419,29 +424,29 @@ class TestModelResilience:
         assert result["cooldown_seconds"] == 18000  # 5 hours
 
     def test_clear_model_cooldown(self, clean_tasks_dir):
-        workflow_record_model_error("claude-opus-4", "rate_limit")
+        workflow_record_model_error("claude-opus-4-6", "rate_limit")
 
         # Model should be in cooldown
-        status_before = workflow_get_available_model(preferred_model="claude-opus-4")
+        status_before = workflow_get_available_model(preferred_model="claude-opus-4-6")
         assert status_before["is_fallback"] is True
 
         # Clear cooldown
-        workflow_clear_model_cooldown("claude-opus-4")
+        workflow_clear_model_cooldown("claude-opus-4-6")
 
         # Model should be available again
-        status_after = workflow_get_available_model(preferred_model="claude-opus-4")
-        assert status_after["model"] == "claude-opus-4"
+        status_after = workflow_get_available_model(preferred_model="claude-opus-4-6")
+        assert status_after["model"] == "claude-opus-4-6"
         assert status_after["is_fallback"] is False
 
     def test_resilience_status(self, clean_tasks_dir):
-        workflow_record_model_error("claude-opus-4", "rate_limit")
+        workflow_record_model_error("claude-opus-4-6", "rate_limit")
 
         result = workflow_get_resilience_status()
 
         assert "models" in result
         assert "fallback_chain" in result
         assert "config" in result
-        assert len([m for m in result["models"] if m["model"] == "claude-opus-4"]) == 1
+        assert len([m for m in result["models"] if m["model"] == "claude-opus-4-6"]) == 1
 
 
 class TestConcerns:
@@ -542,9 +547,10 @@ class TestWorkflowModes:
         assert "authentication" in result["matched_keywords"]
 
     def test_detect_mode_fast_feature(self, clean_tasks_dir):
+        # "Refactor" now detects as turbo (Opus 4.6 single-pass) since it matches turbo keywords
         result = workflow_detect_mode("Refactor the user profile component")
 
-        assert result["mode"] == "fast"
+        assert result["mode"] == "turbo"
         assert "refactor" in [k.lower() for k in result["matched_keywords"]]
 
     def test_set_mode_explicit(self, clean_tasks_dir):
@@ -907,6 +913,221 @@ class TestOptionalPhases:
         assert "security_auditor" in result["optional_phases"]
         assert "api_guardian" in result["optional_phases"]
         assert "Auth task" in result["reasons"]["security_auditor"]["reason"]
+
+
+class TestTurboMode:
+    """Test turbo workflow mode detection and management."""
+
+    def test_detect_mode_turbo(self, clean_tasks_dir):
+        result = workflow_detect_mode("Implement a utility for date formatting")
+
+        assert result["mode"] == "turbo"
+        assert result["confidence"] >= 0.7
+
+    def test_detect_mode_turbo_blocked_by_security(self, clean_tasks_dir):
+        result = workflow_detect_mode("Implement authentication token refresh")
+
+        assert result["mode"] == "full"
+        assert result["confidence"] >= 0.8
+
+    def test_set_mode_turbo(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_200")
+
+        result = workflow_set_mode("turbo", task_id="TASK_TEST_200")
+
+        assert result["success"] is True
+        assert result["workflow_mode"]["effective"] == "turbo"
+        assert "developer" in result["workflow_mode"]["phases"]
+        assert "implementer" in result["workflow_mode"]["phases"]
+        assert "technical_writer" in result["workflow_mode"]["phases"]
+        assert "architect" not in result["workflow_mode"]["phases"]
+        assert "reviewer" not in result["workflow_mode"]["phases"]
+
+
+class TestCostLongContext:
+    """Test long-context pricing for Opus."""
+
+    def test_cost_long_context_pricing(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_210")
+
+        result = workflow_record_cost(
+            agent="architect",
+            model="opus",
+            input_tokens=250000,  # >200K triggers long-context pricing
+            output_tokens=5000,
+            task_id="TASK_TEST_210"
+        )
+
+        assert result["success"] is True
+        # Long-context: $10/M input, $37.50/M output
+        expected_input_cost = (250000 / 1_000_000) * 10.00  # $2.50
+        expected_output_cost = (5000 / 1_000_000) * 37.50   # $0.1875
+        assert abs(result["entry"]["input_cost"] - expected_input_cost) < 0.01
+        assert abs(result["entry"]["output_cost"] - expected_output_cost) < 0.01
+
+    def test_cost_normal_context_pricing(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_211")
+
+        result = workflow_record_cost(
+            agent="developer",
+            model="opus",
+            input_tokens=100000,  # <=200K uses standard pricing
+            output_tokens=5000,
+            task_id="TASK_TEST_211"
+        )
+
+        assert result["success"] is True
+        # Standard: $5/M input, $25/M output
+        expected_input_cost = (100000 / 1_000_000) * 5.00   # $0.50
+        expected_output_cost = (5000 / 1_000_000) * 25.00   # $0.125
+        assert abs(result["entry"]["input_cost"] - expected_input_cost) < 0.01
+        assert abs(result["entry"]["output_cost"] - expected_output_cost) < 0.01
+
+
+class TestEffortLevels:
+    """Test effort level recommendations per mode."""
+
+    def test_effort_full_mode_architect(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_220")
+        workflow_set_mode("full", task_id="TASK_TEST_220")
+
+        result = workflow_get_effort_level("architect", task_id="TASK_TEST_220")
+
+        assert result["effort"] == "max"
+        assert result["mode"] == "full"
+
+    def test_effort_turbo_mode_developer(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_221")
+        workflow_set_mode("turbo", task_id="TASK_TEST_221")
+
+        result = workflow_get_effort_level("developer", task_id="TASK_TEST_221")
+
+        assert result["effort"] == "max"
+        assert result["mode"] == "turbo"
+
+    def test_effort_minimal_mode_developer(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_222")
+        workflow_set_mode("minimal", task_id="TASK_TEST_222")
+
+        result = workflow_get_effort_level("developer", task_id="TASK_TEST_222")
+
+        assert result["effort"] == "medium"
+        assert result["mode"] == "minimal"
+
+    def test_effort_fast_mode_technical_writer(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_223")
+        workflow_set_mode("fast", task_id="TASK_TEST_223")
+
+        result = workflow_get_effort_level("technical_writer", task_id="TASK_TEST_223")
+
+        assert result["effort"] == "medium"
+        assert result["mode"] == "fast"
+
+    def test_effort_default_no_task(self, clean_tasks_dir):
+        result = workflow_get_effort_level("architect", task_id="NONEXISTENT")
+
+        assert result["effort"] == "high"
+
+
+class TestCompactionCost:
+    """Test compaction token cost tracking."""
+
+    def test_cost_with_compaction_tokens(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_230")
+
+        result = workflow_record_cost(
+            agent="architect",
+            model="opus",
+            input_tokens=100000,
+            output_tokens=5000,
+            compaction_tokens=15000,
+            task_id="TASK_TEST_230"
+        )
+
+        assert result["success"] is True
+        assert result["entry"]["compaction_tokens"] == 15000
+        # Compaction cost: haiku output rate ($4/M)
+        expected_compaction_cost = (15000 / 1_000_000) * 4.00  # $0.06
+        assert abs(result["entry"]["compaction_cost"] - expected_compaction_cost) < 0.001
+        # Total should include compaction
+        expected_input_cost = (100000 / 1_000_000) * 5.00
+        expected_output_cost = (5000 / 1_000_000) * 25.00
+        expected_total = expected_input_cost + expected_output_cost + expected_compaction_cost
+        assert abs(result["entry"]["total_cost"] - expected_total) < 0.001
+
+    def test_cost_without_compaction_tokens(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_231")
+
+        result = workflow_record_cost(
+            agent="developer",
+            model="opus",
+            input_tokens=50000,
+            output_tokens=3000,
+            task_id="TASK_TEST_231"
+        )
+
+        assert result["success"] is True
+        assert result["entry"]["compaction_tokens"] == 0
+        assert result["entry"]["compaction_cost"] == 0
+
+    def test_compaction_tokens_in_totals(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_232")
+
+        workflow_record_cost(
+            agent="architect", model="opus",
+            input_tokens=100000, output_tokens=5000,
+            compaction_tokens=10000, task_id="TASK_TEST_232"
+        )
+        workflow_record_cost(
+            agent="developer", model="opus",
+            input_tokens=80000, output_tokens=4000,
+            compaction_tokens=5000, task_id="TASK_TEST_232"
+        )
+
+        summary = workflow_get_cost_summary(task_id="TASK_TEST_232")
+        assert summary["totals"]["compaction_tokens"] == 15000
+
+
+class TestAgentTeamConfig:
+    """Test agent team configuration retrieval."""
+
+    def _mock_config(self, agent_teams=None):
+        """Return a mock config_get_effective that returns the given agent_teams config."""
+        from unittest.mock import patch
+        config = {"agent_teams": agent_teams} if agent_teams else {}
+        return patch(
+            "agentic_workflow_server.config_tools.config_get_effective",
+            return_value={"config": config}
+        )
+
+    def test_get_parallel_review_default_disabled(self, clean_tasks_dir):
+        with self._mock_config():
+            result = workflow_get_agent_team_config("parallel_review")
+
+        assert result["enabled"] is False
+        assert result["feature"] == "parallel_review"
+
+    def test_get_parallel_implementation_default_disabled(self, clean_tasks_dir):
+        with self._mock_config():
+            result = workflow_get_agent_team_config("parallel_implementation")
+
+        assert result["enabled"] is False
+        assert result["feature"] == "parallel_implementation"
+
+    def test_unknown_feature_returns_error(self, clean_tasks_dir):
+        result = workflow_get_agent_team_config("nonexistent_feature")
+
+        assert result["enabled"] is False
+        assert "error" in result
+        assert "Unknown agent team feature" in result["error"]
+
+    def test_parallel_review_enabled(self, clean_tasks_dir):
+        teams = {"enabled": True, "parallel_review": {"enabled": True, "delegate_mode": True}}
+        with self._mock_config(teams):
+            result = workflow_get_agent_team_config("parallel_review")
+
+        assert result["enabled"] is True
+        assert result["settings"]["delegate_mode"] is True
 
 
 if __name__ == "__main__":

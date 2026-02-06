@@ -224,6 +224,15 @@ You may **NOT**:
 - Make changes to fix vulnerabilities
 - Access production systems or data
 
+## Tool Discipline
+
+Use **direct tools** for codebase exploration — do NOT spawn subagents (Task tool) for discovery:
+- **Grep** for searching code content (not `grep` or `rg` via Bash)
+- **Glob** for finding files by pattern (not `find` via Bash)
+- **Read** for reading file contents (not `cat` via Bash)
+
+Never use `Task(subagent_type="Explore", ...)` when Grep/Glob/Read can answer the question in 1-3 calls.
+
 ## Git Safety
 
 When working in a shared repository:

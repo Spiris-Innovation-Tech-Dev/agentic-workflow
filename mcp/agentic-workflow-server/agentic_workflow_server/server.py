@@ -61,6 +61,10 @@ from .state_tools import (
     workflow_set_mode,
     workflow_get_mode,
     workflow_is_phase_in_mode,
+    # Effort levels
+    workflow_get_effort_level,
+    # Agent teams
+    workflow_get_agent_team_config,
     # Cost tracking
     workflow_record_cost,
     workflow_get_cost_summary,
@@ -648,7 +652,7 @@ TOOLS = [
             "properties": {
                 "model": {
                     "type": "string",
-                    "description": "Model identifier (e.g., 'claude-opus-4', 'claude-sonnet-4', 'gemini')"
+                    "description": "Model identifier (e.g., 'claude-opus-4-6', 'claude-opus-4', 'claude-sonnet-4', 'gemini')"
                 },
                 "error_type": {
                     "type": "string",
@@ -740,14 +744,14 @@ TOOLS = [
     ),
     Tool(
         name="workflow_set_mode",
-        description="Set the workflow mode for a task. Mode determines which agents run (full=all 7, fast=skip skeptic/feedback, minimal=dev+impl only).",
+        description="Set the workflow mode for a task. Mode determines which agents run (full=all 7, turbo=dev+impl+tw with single-pass planning, fast=skip skeptic/feedback, minimal=dev+impl only).",
         inputSchema={
             "type": "object",
             "properties": {
                 "mode": {
                     "type": "string",
                     "description": "Workflow mode",
-                    "enum": ["full", "fast", "minimal", "auto"]
+                    "enum": ["full", "turbo", "fast", "minimal", "auto"]
                 },
                 "task_id": {
                     "type": "string",
@@ -789,6 +793,45 @@ TOOLS = [
             "required": ["phase"]
         }
     ),
+    # Effort Levels
+    Tool(
+        name="workflow_get_effort_level",
+        description="Get recommended thinking effort level (low/medium/high/max) for an agent based on the current workflow mode. Use this before spawning each agent to set the appropriate effort parameter.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "description": "Agent name (architect, developer, reviewer, skeptic, implementer, feedback, technical_writer)"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["agent"]
+        }
+    ),
+    # Agent Teams
+    Tool(
+        name="workflow_get_agent_team_config",
+        description="Get agent team configuration for a feature. Returns whether real agent teams are enabled for parallel review or parallel implementation.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "feature": {
+                    "type": "string",
+                    "description": "Agent team feature to check",
+                    "enum": ["parallel_review", "parallel_implementation"]
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier for config cascade resolution."
+                }
+            },
+            "required": ["feature"]
+        }
+    ),
     # Cost Tracking
     Tool(
         name="workflow_record_cost",
@@ -802,7 +845,7 @@ TOOLS = [
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model used (opus, sonnet, haiku)"
+                    "description": "Model used (opus, sonnet, haiku). Opus with >200K input tokens uses long-context pricing."
                 },
                 "input_tokens": {
                     "type": "integer",
@@ -815,6 +858,10 @@ TOOLS = [
                 "duration_seconds": {
                     "type": "number",
                     "description": "Time taken for the run"
+                },
+                "compaction_tokens": {
+                    "type": "integer",
+                    "description": "Tokens used by compaction iterations"
                 },
                 "task_id": {
                     "type": "string",
@@ -1307,7 +1354,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 phase=arguments["phase"],
                 task_id=arguments.get("task_id")
             )
+        elif name == "workflow_get_effort_level":
+            result = workflow_get_effort_level(
+                agent=arguments["agent"],
+                task_id=arguments.get("task_id")
+            )
         # Cost Tracking
+        elif name == "workflow_get_agent_team_config":
+            result = workflow_get_agent_team_config(
+                feature=arguments["feature"],
+                task_id=arguments.get("task_id")
+            )
         elif name == "workflow_record_cost":
             result = workflow_record_cost(
                 agent=arguments["agent"],
@@ -1315,6 +1372,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 input_tokens=arguments["input_tokens"],
                 output_tokens=arguments["output_tokens"],
                 duration_seconds=arguments.get("duration_seconds", 0),
+                compaction_tokens=arguments.get("compaction_tokens", 0),
                 task_id=arguments.get("task_id")
             )
         elif name == "workflow_get_cost_summary":

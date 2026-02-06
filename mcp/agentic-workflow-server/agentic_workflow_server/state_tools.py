@@ -1363,6 +1363,7 @@ DEFAULT_RESILIENCE_CONFIG = {
         "backoff_seconds": [60, 300, 1500]  # 1m, 5m, 25m
     },
     "fallback_chain": [
+        {"model": "claude-opus-4-6", "timeout": 120},
         {"model": "claude-opus-4", "timeout": 120},
         {"model": "claude-sonnet-4", "timeout": 60},
         {"model": "gemini", "timeout": 60}
@@ -1719,6 +1720,11 @@ WORKFLOW_MODES = {
         "phases": ["architect", "developer", "reviewer", "skeptic", "implementer", "feedback", "technical_writer"],
         "estimated_cost": "$0.50+"
     },
+    "turbo": {
+        "description": "Developer plans comprehensively in one pass - standard features with Opus 4.6",
+        "phases": ["developer", "implementer", "technical_writer"],
+        "estimated_cost": "$0.15"
+    },
     "fast": {
         "description": "Skip Skeptic and Feedback - standard changes",
         "phases": ["architect", "developer", "reviewer", "implementer", "technical_writer"],
@@ -1731,11 +1737,45 @@ WORKFLOW_MODES = {
     }
 }
 
+# Recommended thinking effort levels per mode and agent
+EFFORT_LEVELS = {
+    "full": {
+        "architect": "max",
+        "developer": "max",
+        "reviewer": "high",
+        "skeptic": "max",
+        "implementer": "high",
+        "feedback": "high",
+        "technical_writer": "medium"
+    },
+    "turbo": {
+        "developer": "max",
+        "implementer": "high",
+        "technical_writer": "medium"
+    },
+    "fast": {
+        "architect": "high",
+        "developer": "high",
+        "reviewer": "high",
+        "implementer": "high",
+        "technical_writer": "medium"
+    },
+    "minimal": {
+        "developer": "medium",
+        "implementer": "medium"
+    }
+}
+
 # Keywords for auto-detection
 AUTO_DETECT_RULES = {
     "minimal": {
         "keywords": ["typo", "fix typo", "simple fix", "rename", "update comment", "fix import"],
         "max_files": 1
+    },
+    "turbo": {
+        "keywords": ["add feature", "implement", "update", "refactor", "add", "create", "build", "utility"],
+        "exclude_keywords": ["security", "auth", "database", "migration", "api", "breaking",
+                           "authentication", "authorization", "password", "token", "critical"]
     },
     "fast": {
         "keywords": ["add feature", "implement", "update", "refactor"],
@@ -1795,6 +1835,27 @@ def workflow_detect_mode(
             "matched_keywords": minimal_matches
         }
 
+    # Check for turbo mode (Opus 4.6 single-pass planning)
+    turbo_excluded = False
+    for exclude_keyword in AUTO_DETECT_RULES["turbo"]["exclude_keywords"]:
+        if exclude_keyword in desc_lower:
+            turbo_excluded = True
+            break
+
+    if not turbo_excluded:
+        turbo_matches = []
+        for keyword in AUTO_DETECT_RULES["turbo"]["keywords"]:
+            if keyword in desc_lower:
+                turbo_matches.append(keyword)
+
+        if turbo_matches:
+            return {
+                "mode": "turbo",
+                "reason": f"Standard feature task ({', '.join(turbo_matches)}) suitable for single-pass Opus 4.6 planning",
+                "confidence": 0.75,
+                "matched_keywords": turbo_matches
+            }
+
     # Check for fast mode exclusions
     fast_excluded = False
     for exclude_keyword in AUTO_DETECT_RULES["fast"]["exclude_keywords"]:
@@ -1839,10 +1900,10 @@ def workflow_set_mode(
     Returns:
         Updated task state with mode configuration
     """
-    if mode not in ["full", "fast", "minimal", "auto"]:
+    if mode not in ["full", "turbo", "fast", "minimal", "auto"]:
         return {
             "success": False,
-            "error": f"Invalid mode '{mode}'. Must be one of: full, fast, minimal, auto"
+            "error": f"Invalid mode '{mode}'. Must be one of: full, turbo, fast, minimal, auto"
         }
 
     task_dir = find_task_dir(task_id)
@@ -1953,15 +2014,105 @@ def workflow_is_phase_in_mode(
     }
 
 
+def workflow_get_effort_level(
+    agent: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get the recommended thinking effort level for an agent in the current mode.
+
+    Maps workflow modes to per-agent effort levels (low/medium/high/max)
+    for use with Claude's extended thinking effort parameter.
+
+    Args:
+        agent: Agent name (architect, developer, reviewer, etc.)
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Recommended effort level and mode context
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "effort": "high",
+            "mode": "full",
+            "reason": "No active task found, using default effort level"
+        }
+
+    state = _load_state(task_dir)
+    mode = state.get("workflow_mode", {}).get("effective", "full")
+    mode_efforts = EFFORT_LEVELS.get(mode, EFFORT_LEVELS["full"])
+    effort = mode_efforts.get(agent, "high")
+
+    return {
+        "effort": effort,
+        "agent": agent,
+        "mode": mode,
+        "task_id": state.get("task_id")
+    }
+
+
+# ============================================================================
+# Agent Teams (experimental)
+# ============================================================================
+
+AGENT_TEAM_FEATURES = ["parallel_review", "parallel_implementation"]
+
+
+def workflow_get_agent_team_config(
+    feature: str,
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get agent team configuration for a specific feature.
+
+    Reads agent_teams config via config cascade and returns whether the
+    feature is enabled along with its settings.
+
+    Args:
+        feature: Feature name (parallel_review, parallel_implementation)
+        task_id: Task identifier for config cascade resolution.
+
+    Returns:
+        Feature enabled status and settings
+    """
+    if feature not in AGENT_TEAM_FEATURES:
+        return {
+            "enabled": False,
+            "error": f"Unknown agent team feature '{feature}'. Must be one of: {', '.join(AGENT_TEAM_FEATURES)}"
+        }
+
+    from .config_tools import config_get_effective
+
+    effective = config_get_effective(task_id=task_id)
+    config = effective.get("config", {})
+    agent_teams = config.get("agent_teams", {})
+
+    if not agent_teams.get("enabled", False):
+        return {
+            "enabled": False,
+            "feature": feature,
+            "reason": "agent_teams.enabled is false"
+        }
+
+    feature_config = agent_teams.get(feature, {})
+
+    return {
+        "enabled": feature_config.get("enabled", False),
+        "feature": feature,
+        "settings": feature_config,
+        "task_id": task_id
+    }
+
+
 # ============================================================================
 # Cost Tracking
 # ============================================================================
 
 # Model costs per million tokens (from config, but defaults here)
 MODEL_COSTS = {
-    "opus": {"input": 15.00, "output": 75.00},
+    "opus": {"input": 5.00, "output": 25.00},
+    "opus_long_context": {"input": 10.00, "output": 37.50},
     "sonnet": {"input": 3.00, "output": 15.00},
-    "haiku": {"input": 0.25, "output": 1.25}
+    "haiku": {"input": 0.80, "output": 4.00}
 }
 
 
@@ -1971,6 +2122,7 @@ def workflow_record_cost(
     input_tokens: int,
     output_tokens: int,
     duration_seconds: float = 0,
+    compaction_tokens: int = 0,
     task_id: Optional[str] = None
 ) -> dict[str, Any]:
     """Record token usage and cost for an agent run.
@@ -1981,6 +2133,7 @@ def workflow_record_cost(
         input_tokens: Number of input tokens
         output_tokens: Number of output tokens
         duration_seconds: Time taken for the run
+        compaction_tokens: Tokens used by compaction iterations
         task_id: Task identifier. If not provided, uses active task.
 
     Returns:
@@ -1995,12 +2148,20 @@ def workflow_record_cost(
 
     state = _load_state(task_dir)
 
-    # Calculate cost
+    # Calculate cost (use long-context pricing for opus with >200K input tokens)
     model_lower = model.lower()
-    costs = MODEL_COSTS.get(model_lower, MODEL_COSTS["opus"])
+    if model_lower == "opus" and input_tokens > 200_000:
+        costs = MODEL_COSTS["opus_long_context"]
+    else:
+        costs = MODEL_COSTS.get(model_lower, MODEL_COSTS["opus"])
     input_cost = (input_tokens / 1_000_000) * costs["input"]
     output_cost = (output_tokens / 1_000_000) * costs["output"]
     total_cost = input_cost + output_cost
+
+    compaction_cost = 0
+    if compaction_tokens > 0:
+        compaction_cost = (compaction_tokens / 1_000_000) * MODEL_COSTS["haiku"]["output"]
+        total_cost += compaction_cost
 
     # Initialize cost tracking if needed
     if "cost_tracking" not in state:
@@ -2009,6 +2170,7 @@ def workflow_record_cost(
             "totals": {
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "compaction_tokens": 0,
                 "total_cost": 0,
                 "duration_seconds": 0
             },
@@ -2022,8 +2184,10 @@ def workflow_record_cost(
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "compaction_tokens": compaction_tokens,
         "input_cost": round(input_cost, 4),
         "output_cost": round(output_cost, 4),
+        "compaction_cost": round(compaction_cost, 4),
         "total_cost": round(total_cost, 4),
         "duration_seconds": duration_seconds,
         "timestamp": datetime.now().isoformat()
@@ -2033,6 +2197,7 @@ def workflow_record_cost(
     state["cost_tracking"]["entries"].append(entry)
     state["cost_tracking"]["totals"]["input_tokens"] += input_tokens
     state["cost_tracking"]["totals"]["output_tokens"] += output_tokens
+    state["cost_tracking"]["totals"]["compaction_tokens"] += compaction_tokens
     state["cost_tracking"]["totals"]["total_cost"] += total_cost
     state["cost_tracking"]["totals"]["duration_seconds"] += duration_seconds
 

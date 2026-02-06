@@ -37,6 +37,37 @@ Read and display `~/.claude/crew-config.yaml`:
 │   Knowledge Base:   docs/ai-context/                         │
 │   Task Directory:   .tasks/                                  │
 │                                                              │
+│ WORKFLOW MODE                                                │
+│   Default:          auto                                     │
+│   Modes: full | turbo | fast | minimal | auto                │
+│                                                              │
+│ EFFORT LEVELS                                                │
+│   API: thinking=adaptive, output_config.effort=<level>       │
+│   Values: low | medium | high | max (max=Opus 4.6 only)     │
+│                                                              │
+│ COMPACTION                                                   │
+│   Enabled:          ✓                                        │
+│   Model:            compact-2026-01-12                       │
+│   Trigger:          80000 tokens                             │
+│   Pause after:      ✓ (re-inject state)                     │
+│                                                              │
+│ COST TRACKING                                                │
+│   Enabled:          ✓                                        │
+│   Show Summary:     ✓                                        │
+│                                                              │
+│ AGENT TEAMS (experimental)                                   │
+│   Enabled:          ✗ Disabled                               │
+│   Parallel Review:  ✗ Disabled                               │
+│   Parallel Impl:    ✗ Disabled                               │
+│                                                              │
+│ SUBAGENT LIMITS                                              │
+│   Planning:         30 turns                                 │
+│   Implementation:   50 turns                                 │
+│   Documentation:    20 turns                                 │
+│   Consultation:     15 turns                                 │
+│   Direct Tools:     ✓ (prefer Grep/Glob/Read over Task)     │
+│   Timeout:          300s                                     │
+│                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 

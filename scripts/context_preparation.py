@@ -460,6 +460,21 @@ Note documentation needs:
 
         result.repomix_output_path = repomix_output
 
+        # Check if native context is preferred and output fits within threshold
+        prefer_native = self.config.get("prefer_native_context", False)
+        threshold_kb = self.config.get("native_context_threshold_kb", 800)
+        if prefer_native:
+            repomix_size_kb = Path(repomix_output).stat().st_size / 1024
+            if repomix_size_kb <= threshold_kb:
+                result.status = "skipped"
+                result.warnings.append(
+                    f"Repomix output ({repomix_size_kb:.0f}KB) fits within native context "
+                    f"threshold ({threshold_kb}KB). Skipping Gemini analysis — pass "
+                    f"repomix output directly to Opus 4.6's 1M token context."
+                )
+                self.update_state(result)
+                return result
+
         # Run Gemini analysis
         analysis_path = self.run_gemini_analysis(repomix_output)
         if not analysis_path:
