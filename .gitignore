@@ -6,3 +6,6 @@ __pycache__/
 
 # Workflow task directories (runtime state)
 .tasks/
+
+# Generated platform-specific agents (rebuild with: python3 scripts/build-agents.py <platform>)
+.github/agents/

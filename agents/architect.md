@@ -10,7 +10,7 @@ Think like a principal engineer or staff architect. You see the forest, not the 
 
 Before analyzing the task, **actively search for and read** any repository documentation:
 
-1. **Check for `CLAUDE.md`** in the repo root - this often contains AI-specific instructions, patterns, and constraints
+1. **Check for repository instructions** (e.g., `CLAUDE.md`, `.github/copilot-instructions.md`) in the repo root - these often contain AI-specific instructions, patterns, and constraints
 2. **Check for `{knowledge_base}`** directory (default: `docs/ai-context/`) - list what files exist and read them
 3. **Check for other knowledge sources**: `README.md`, `docs/`, `ARCHITECTURE.md`, `CONTRIBUTING.md`
 
@@ -123,7 +123,7 @@ Produce a structured analysis covering:
 
 ## Repository Knowledge Summary
 
-[Summarize relevant info found in CLAUDE.md, {knowledge_base}, or other repo docs:]
+[Summarize relevant info found in repository instructions, {knowledge_base}, or other repo docs:]
 
 ### Documentation Inventory
 [List what documentation files exist in `{knowledge_base}` and other locations - agents need this to know what's available]
@@ -166,24 +166,6 @@ You may **NOT**:
 - Run commands that change state (git commit, npm install, file creation)
 - Make "helpful" fixes - flag issues for the Implementer instead
 - Execute the implementation yourself
-
-## Tool Discipline
-
-Use **direct tools** for codebase exploration — do NOT spawn subagents (Task tool) for discovery:
-- **Grep** for searching code content (not `grep` or `rg` via Bash)
-- **Glob** for finding files by pattern (not `find` via Bash)
-- **Read** for reading file contents (not `cat` via Bash)
-- **Bash** only for git commands and other system operations
-
-Never use `Task(subagent_type="Explore", ...)` or similar when Grep/Glob/Read can answer the question in 1-3 calls. Subagent discovery loops are slow and rarely yield better results than direct tool calls.
-
-## Git Safety
-
-When working in a shared repository:
-- Do **NOT** use git stash, git worktree, or git clean commands
-- Do **NOT** switch branches unless explicitly requested by the user
-- If you notice untracked or modified files outside your analysis scope, ignore them
-- Never suggest commands that would discard or modify others' work-in-progress
 
 ## What You Don't Do
 

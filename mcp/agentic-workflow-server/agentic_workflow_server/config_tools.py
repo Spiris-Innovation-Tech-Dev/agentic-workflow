@@ -2,11 +2,12 @@
 Configuration Tools for Agentic Workflow MCP Server
 
 Handles YAML configuration cascade merge:
-  1. Global defaults:  ~/.claude/workflow-config.yaml
-  2. Project config:   <repo>/.claude/workflow-config.yaml
+  1. Global defaults:  ~/.claude/ or ~/.copilot/ or ~/.gemini/workflow-config.yaml
+  2. Project config:   <repo>/.claude/ or .copilot/ or .gemini/workflow-config.yaml
   3. Task config:      <repo>/.tasks/TASK_XXX/config.yaml
 
-Each level overrides the previous.
+Each level overrides the previous. Platform directories are checked
+in order (.claude first, then .copilot, then .gemini), using whichever exists.
 """
 
 import os
@@ -164,14 +165,26 @@ def _load_yaml(path: Path) -> Optional[dict]:
         return None
 
 
+PLATFORM_DIRS = [".claude", ".copilot", ".gemini"]
+
+
 def _get_global_config_path() -> Path:
+    """Return global config path, checking multiple platform directories."""
+    for platform_dir in PLATFORM_DIRS:
+        path = Path.home() / platform_dir / "workflow-config.yaml"
+        if path.exists():
+            return path
     return Path.home() / ".claude" / "workflow-config.yaml"
 
 
 def _get_project_config_path(project_dir: Optional[str] = None) -> Path:
-    if project_dir:
-        return Path(project_dir) / ".claude" / "workflow-config.yaml"
-    return Path.cwd() / ".claude" / "workflow-config.yaml"
+    """Return project config path, checking multiple platform directories."""
+    base = Path(project_dir) if project_dir else Path.cwd()
+    for platform_dir in PLATFORM_DIRS:
+        path = base / platform_dir / "workflow-config.yaml"
+        if path.exists():
+            return path
+    return base / ".claude" / "workflow-config.yaml"
 
 
 def _get_task_config_path(task_id: str, project_dir: Optional[str] = None) -> Path:

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-09
+
+### Added
+- **Multi-platform build system** — `scripts/build-agents.py` transforms shared agent sources into Claude Code, Copilot CLI, and Gemini CLI formats
+- **Gemini CLI support** — sub-agent `.md` files with YAML frontmatter (name, description, kind, tools, max_turns), per-agent tool restrictions, `install-gemini.sh` / `uninstall-gemini.sh`
+- **Platform orchestrators** — `config/platform-orchestrators/copilot.md` (runSubagent chaining) and `config/platform-orchestrators/gemini.md` (autonomous description-based routing)
+- **Gemini platform preamble** — `config/platform-preambles/gemini.md` with Gemini-native tool names (read_file, grep_search, etc.)
+- **`.gemini` config path** — added to `PLATFORM_DIRS` so config cascade checks `~/.gemini/workflow-config.yaml`
+- 5 new tests for `.gemini` config path detection and precedence
+
+### Changed
+- `install.sh` now uses `scripts/build-agents.py claude` instead of inline shell loop
+- `install-copilot.ps1` now uses `scripts/build-agents.py copilot` instead of inline PowerShell loop
+- `install-copilot.ps1` cleans up old-format `crew-*.md` files (without `.agent.md` extension) on install
+- Copilot orchestrator (`crew.agent.md`) gets `tools: ["*"]` in frontmatter
+- Generated `.github/agents/` files are now gitignored (rebuilt on install)
+- README rewritten with three-platform feature comparison table, install instructions for all platforms, updated config/contributing/uninstall sections
+- `copilot-instructions.md` config section updated to mention `.gemini/` fallback
+
 ## [0.2.1] - 2026-02-06
 
 ### Fixed

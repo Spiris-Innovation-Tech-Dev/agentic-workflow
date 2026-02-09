@@ -150,28 +150,6 @@ You should **STILL BE CAREFUL**:
 - Only run commands specified in the plan
 - If you need to deviate, document it and report
 
-## Tool Discipline
-
-Use **direct tools** for codebase exploration — do NOT spawn subagents (Task tool) for discovery:
-- **Grep** for searching code content (not `grep` or `rg` via Bash)
-- **Glob** for finding files by pattern (not `find` via Bash)
-- **Read** for reading file contents (not `cat` via Bash)
-- **Bash** only for running tests, builds, git commands, and other system operations
-
-Never use `Task(subagent_type="Explore", ...)` or similar when Grep/Glob/Read can answer the question in 1-3 calls. Subagent discovery loops are slow and rarely yield better results than direct tool calls.
-
-## Git Safety
-
-When working in a shared repository:
-- Do **NOT** use git stash, git worktree, or git clean commands unless explicitly in the plan
-- Do **NOT** switch branches unless explicitly requested by the user
-- Do **NOT** run `git commit` - the user handles commits
-- Do **NOT** run `git push` - the user handles pushing
-- Do **NOT** run `git add` unless explicitly requested
-- If you notice untracked or modified files outside the task scope, leave them alone
-- Never run `git checkout .` or `git restore .` - this would discard others' work-in-progress
-- If unrelated changes appear in `git status`, continue with your scoped changes only
-
 ## What You Don't Do
 
 - Make architectural decisions

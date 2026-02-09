@@ -4,7 +4,9 @@
   <img src="logo.png" alt="Agentic Workflow Logo" width="300">
 </p>
 
-A multi-agent development workflow for Claude Code that orchestrates specialized AI agents through planning, implementation, and documentation phases.
+A multi-agent development workflow that orchestrates specialized AI agents through planning, implementation, and documentation phases.
+
+**Supports Claude Code, GitHub Copilot CLI, and Gemini CLI.**
 
 ## Why Agentic Workflow?
 
@@ -37,13 +39,23 @@ Complex development tasks require multiple perspectives: architecture considerat
 
 ## Prerequisites
 
-- [Claude Code](https://github.com/anthropics/claude-code) CLI installed
+- Python 3.10+
 - Git
-- (Optional) [Gemini CLI](https://github.com/google/gemini-cli) for large-context analysis
-- (Optional) [Repomix](https://github.com/yamadashy/repomix) for intelligent file aggregation
-- (Optional) [Beads](https://github.com/steveyegge/beads) for issue tracking
+- One (or more) of the supported AI coding platforms:
+
+| Platform | Install Guide |
+|----------|--------------|
+| Claude Code | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
+| GitHub Copilot CLI | [docs.github.com/copilot](https://docs.github.com/copilot/how-tos/set-up/install-copilot-cli) |
+| Gemini CLI | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
+
+### Optional
+- [Repomix](https://github.com/yamadashy/repomix) for intelligent file aggregation
+- [Beads](https://github.com/steveyegge/beads) for issue tracking
 
 ## Installation
+
+### Claude Code
 
 ```bash
 git clone https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow.git
@@ -51,12 +63,54 @@ cd agentic-workflow
 ./install.sh
 ```
 
-The installer copies:
-- Commands to `~/.claude/commands/`
-- Agents to `~/.claude/agents/`
-- Config to `~/.claude/workflow-config.yaml`
+Installs to:
+- Commands → `~/.claude/commands/`
+- Agents → `~/.claude/agents/`
+- Config → `~/.claude/workflow-config.yaml`
+
+### GitHub Copilot CLI
+
+```powershell
+git clone https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow.git
+cd agentic-workflow
+.\install-copilot.ps1
+```
+
+Installs to:
+- Agents → `.github/agents/` (repo-level) + `~/.copilot/agents/` (user-level)
+- Config → `~/.copilot/workflow-config.yaml`
+- MCP server → Python package + `~/.copilot/mcp-config.json`
+- Instructions → `.github/copilot-instructions.md`
+
+### Gemini CLI
+
+```bash
+git clone https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow.git
+cd agentic-workflow
+./install-gemini.sh
+```
+
+Installs to:
+- Agents → `~/.gemini/agents/crew-*.md` (sub-agents with YAML frontmatter)
+- Config → `~/.gemini/workflow-config.yaml`
+- Settings → `~/.gemini/settings.json` (enables experimental agents + MCP server)
+- MCP server → Python package
 
 Existing config files are backed up with a timestamp.
+
+### Build Script (Advanced)
+
+The `scripts/build-agents.py` script transforms shared agent sources into platform-specific formats:
+
+```bash
+python3 scripts/build-agents.py claude                    # Build to ~/.claude/agents/
+python3 scripts/build-agents.py copilot                   # Build to .github/agents/
+python3 scripts/build-agents.py gemini                    # Build to ~/.gemini/agents/
+python3 scripts/build-agents.py copilot --output /path    # Custom output directory
+python3 scripts/build-agents.py --list-platforms           # Show available platforms
+```
+
+This is what `install.sh` and `install-copilot.ps1` call under the hood.
 
 ## Quick Start
 
@@ -341,14 +395,16 @@ What are the trade-offs for future multi-provider support?
 Configuration uses a cascade system where each level overrides the previous:
 
 ```
-~/.claude/crew-config.yaml          ← Global defaults
+~/.claude/ or ~/.copilot/ or ~/.gemini/workflow-config.yaml   ← Global defaults
        ↓
-<repo>/.claude/crew-config.yaml     ← Project overrides
+<repo>/.claude/ or .copilot/ or .gemini/workflow-config.yaml  ← Project overrides
        ↓
-.tasks/TASK_XXX/config.yaml             ← Task-specific
+.tasks/TASK_XXX/config.yaml                                    ← Task-specific
        ↓
-Command-line args                        ← Highest priority
+Command-line args                                              ← Highest priority
 ```
+
+Platform directories are checked in order: `.claude` → `.copilot` → `.gemini`, using whichever exists first.
 
 ### Configuration Reference
 
@@ -759,23 +815,93 @@ to see all resumable tasks.
 
 ## Uninstall
 
+### Claude Code
 ```bash
 ./uninstall.sh
 ```
 
-This removes:
-- Commands from `~/.claude/commands/`
-- Agents from `~/.claude/agents/`
-- Config from `~/.claude/crew-config.yaml`
+### GitHub Copilot CLI
+```powershell
+.\uninstall-copilot.ps1
+```
 
-Task state in `.tasks/` is preserved.
+### Gemini CLI
+```bash
+./uninstall-gemini.sh
+```
+
+All uninstallers preserve task state in `.tasks/`.
+
+## Platform Support
+
+### Feature Comparison
+
+| Feature | Claude Code | Copilot CLI | Gemini CLI |
+|---------|:-----------:|:-----------:|:----------:|
+| **Agents** | All 12 | All 12 | All 12 |
+| **MCP Tools** | 52 tools | 52 tools | 52 tools |
+| **State Management** | `.tasks/` | `.tasks/` | `.tasks/` |
+| **Config Cascade** | Global → Project → Task | Global → Project → Task | Global → Project → Task |
+| **Workflow Modes** | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto |
+| **Cost Tracking** | Per-agent breakdown | Per-agent breakdown | Per-agent breakdown |
+| **Memory/Discoveries** | Persistent | Persistent | Persistent |
+| **Orchestration** | `/crew` command (automated) | `/agent crew-orchestrator` (sub-agent chaining) | Autonomous routing (description-based) |
+| **Slash Commands** | `/crew`, `/crew-ask`, etc. | `/agent` only | Custom commands (`.toml`) |
+| **Hook Enforcement** | PreToolUse, Stop hooks | Not available | Not available |
+| **Agent Teams** | Experimental parallel agents | Not available | Not available |
+| **Effort Levels** | API parameter (`output_config`) | Informational only | Informational only |
+| **Compaction** | Server-side auto-compaction | Not available | Not available |
+
+### Platform Details
+
+#### Claude Code
+- **Best experience** — `/crew` automates the full workflow end-to-end
+- Agents installed to `~/.claude/agents/` as plain `.md` files
+- Hooks enforce phase ordering (PreToolUse blocks wrong transitions, Stop hook ensures Technical Writer runs)
+- MCP server auto-registered via `claude mcp add`
+- Instructions in `CLAUDE.md`
+
+#### GitHub Copilot CLI
+- Agents installed to `.github/agents/` as `.agent.md` files with YAML frontmatter
+- Orchestrator generates `crew.agent.md` which chains sub-agents via Copilot's agent delegation
+- Invoke with `/agent crew-orchestrator` to run the full workflow, or reference individual agents (e.g., "Use crew-architect to...")
+- MCP server registered in `~/.copilot/mcp-config.json`
+- Instructions in `.github/copilot-instructions.md`
+- No hook enforcement — the MCP tools track state but don't block invalid operations
+
+#### Gemini CLI
+- Agents installed to `~/.gemini/agents/` as `.md` files with YAML frontmatter
+- Sub-agents are **experimental** — requires `"experimental": {"enableAgents": true}` in `settings.json`
+- Routing is autonomous: Gemini's main agent delegates to sub-agents based on their `description` field
+- Each sub-agent has restricted tool access (read-only agents can't write files)
+- MCP server configured in `~/.gemini/settings.json`
+- Instructions in `GEMINI.md`
+- No hook enforcement
+
+### What's Shared Across All Platforms
+
+| Component | Path | Description |
+|-----------|------|-------------|
+| Agent prompts | `agents/*.md` | Source of truth for all agent behavior |
+| MCP server | `mcp/agentic-workflow-server/` | 52 workflow management tools |
+| Task state | `.tasks/TASK_XXX/` | Phase tracking, discoveries, progress |
+| Config | `workflow-config.yaml` | Checkpoints, models, modes, limits |
+| Build script | `scripts/build-agents.py` | Transforms agents for each platform |
+| Preambles | `config/platform-preambles/` | Tool discipline per platform |
+| Orchestrators | `config/platform-orchestrators/` | Orchestration strategy per platform |
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Test with `./install.sh` in a test environment
+3. Make your changes — edit agents in `agents/*.md` (single source for all platforms)
+4. Build and verify for each platform:
+   ```bash
+   python3 scripts/build-agents.py claude --output /tmp/test-claude
+   python3 scripts/build-agents.py copilot --output /tmp/test-copilot
+   python3 scripts/build-agents.py gemini --output /tmp/test-gemini
+   python3 -m pytest mcp/agentic-workflow-server/tests/ -v
+   ```
 5. Submit a pull request
 
 ### Releasing a New Version

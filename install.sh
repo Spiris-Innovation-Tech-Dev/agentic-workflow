@@ -67,17 +67,13 @@ echo "  ✓ crew-config.md"
 echo "  ✓ crew-status.md"
 echo "  ✓ crew-resume.md"
 
-# Copy agents
+# Build agents using multi-platform build script
 echo ""
 echo "Installing agents..."
-cp "$SCRIPT_DIR/agents/"*.md "$CLAUDE_DIR/agents/"
-echo "  ✓ architect.md"
-echo "  ✓ developer.md"
-echo "  ✓ reviewer.md"
-echo "  ✓ skeptic.md"
-echo "  ✓ implementer.md"
-echo "  ✓ feedback.md"
-echo "  ✓ technical-writer.md"
+python3 "$SCRIPT_DIR/scripts/build-agents.py" claude --output "$HOME" || {
+  echo "  ✗ Failed to build agents"
+  exit 1
+}
 
 # Copy scripts for workflow enforcement
 echo ""

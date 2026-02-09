@@ -193,24 +193,6 @@ You may **NOT**:
 - Make "helpful" fixes - flag deviations for the Implementer to address
 - Execute any code or tests that modify state
 
-## Tool Discipline
-
-Use **direct tools** for codebase exploration — do NOT spawn subagents (Task tool) for discovery:
-- **Grep** for searching code content (not `grep` or `rg` via Bash)
-- **Glob** for finding files by pattern (not `find` via Bash)
-- **Read** for reading file contents (not `cat` via Bash)
-- **Bash** only for git commands and other system operations
-
-Never use `Task(subagent_type="Explore", ...)` or similar when Grep/Glob/Read can answer the question in 1-3 calls. Subagent discovery loops are slow and rarely yield better results than direct tool calls.
-
-## Git Safety
-
-When working in a shared repository:
-- Do **NOT** use git stash, git worktree, or git clean commands
-- Do **NOT** switch branches unless explicitly requested by the user
-- If you notice untracked or modified files outside the task scope, note them briefly but do not touch
-- Never suggest commands that would discard or modify others' work-in-progress
-
 ## What You Don't Do
 
 - Fix the code (that's the Implementer's job)

@@ -2,11 +2,11 @@
 """
 Agentic Workflow MCP Server
 
-A unified MCP server that provides state management, configuration, and
-validation tools for the agentic-workflow system.
-
-This server replaces the shell-based hooks with structured MCP tools that
-provide better error handling, discoverability, and reliability.
+This module defines the central Message Control Protocol (MCP) server for the
+agentic workflow system. It registers and dispatches various workflow management
+and configuration tools, acting as the primary interface between agents and
+the workflow state. This server replaces shell-based hooks with structured MCP
+tools, providing enhanced error handling, discoverability, and reliability.
 """
 
 import asyncio
@@ -1173,289 +1173,69 @@ async def list_tools() -> list[Tool]:
     return TOOLS
 
 
+
+TOOL_DISPATCH_TABLE = {
+    "workflow_initialize": workflow_initialize,
+    "workflow_transition": workflow_transition,
+    "workflow_get_state": workflow_get_state,
+    "workflow_add_review_issue": workflow_add_review_issue,
+    "workflow_mark_docs_needed": workflow_mark_docs_needed,
+    "workflow_complete_phase": workflow_complete_phase,
+    "workflow_is_complete": workflow_is_complete,
+    "workflow_can_transition": workflow_can_transition,
+    "workflow_can_stop": workflow_can_stop,
+    "config_get_effective": config_get_effective,
+    "config_get_checkpoint": config_get_checkpoint,
+    "config_get_beads": config_get_beads,
+    "workflow_set_implementation_progress": workflow_set_implementation_progress,
+    "workflow_complete_step": workflow_complete_step,
+    "workflow_add_human_decision": workflow_add_human_decision,
+    "workflow_set_kb_inventory": workflow_set_kb_inventory,
+    "workflow_add_concern": workflow_add_concern,
+    "workflow_address_concern": workflow_address_concern,
+    "workflow_get_concerns": workflow_get_concerns,
+    "workflow_save_discovery": workflow_save_discovery,
+    "workflow_get_discoveries": workflow_get_discoveries,
+    "workflow_flush_context": workflow_flush_context,
+    "workflow_get_context_usage": workflow_get_context_usage,
+    "workflow_prune_old_outputs": workflow_prune_old_outputs,
+    "workflow_search_memories": workflow_search_memories,
+    "workflow_link_tasks": workflow_link_tasks,
+    "workflow_get_linked_tasks": workflow_get_linked_tasks,
+    "workflow_record_model_error": workflow_record_model_error,
+    "workflow_record_model_success": workflow_record_model_success,
+    "workflow_get_available_model": workflow_get_available_model,
+    "workflow_get_resilience_status": workflow_get_resilience_status,
+    "workflow_clear_model_cooldown": workflow_clear_model_cooldown,
+    "workflow_detect_mode": workflow_detect_mode,
+    "workflow_set_mode": workflow_set_mode,
+    "workflow_get_mode": workflow_get_mode,
+    "workflow_is_phase_in_mode": workflow_is_phase_in_mode,
+    "workflow_get_effort_level": workflow_get_effort_level,
+    "workflow_get_agent_team_config": workflow_get_agent_team_config,
+    "workflow_record_cost": workflow_record_cost,
+    "workflow_get_cost_summary": workflow_get_cost_summary,
+    "workflow_start_parallel_phase": workflow_start_parallel_phase,
+    "workflow_complete_parallel_phase": workflow_complete_parallel_phase,
+    "workflow_merge_parallel_results": workflow_merge_parallel_results,
+    "workflow_add_assertion": workflow_add_assertion,
+    "workflow_verify_assertion": workflow_verify_assertion,
+    "workflow_get_assertions": workflow_get_assertions,
+    "workflow_record_error_pattern": workflow_record_error_pattern,
+    "workflow_match_error": workflow_match_error,
+    "workflow_record_concern_outcome": workflow_record_concern_outcome,
+    "workflow_get_agent_performance": workflow_get_agent_performance,
+    "workflow_enable_optional_phase": workflow_enable_optional_phase,
+    "workflow_get_optional_phases": workflow_get_optional_phases,
+}
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     try:
-        if name == "workflow_initialize":
-            result = workflow_initialize(
-                task_id=arguments.get("task_id"),
-                description=arguments.get("description")
-            )
-        elif name == "workflow_transition":
-            result = workflow_transition(
-                to_phase=arguments["to_phase"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_state":
-            result = workflow_get_state(task_id=arguments.get("task_id"))
-        elif name == "workflow_add_review_issue":
-            result = workflow_add_review_issue(
-                issue_type=arguments["issue_type"],
-                description=arguments["description"],
-                task_id=arguments.get("task_id"),
-                step=arguments.get("step"),
-                severity=arguments.get("severity", "medium")
-            )
-        elif name == "workflow_mark_docs_needed":
-            result = workflow_mark_docs_needed(
-                files=arguments["files"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_complete_phase":
-            result = workflow_complete_phase(task_id=arguments.get("task_id"))
-        elif name == "workflow_is_complete":
-            result = workflow_is_complete(task_id=arguments.get("task_id"))
-        elif name == "workflow_can_transition":
-            result = workflow_can_transition(
-                to_phase=arguments["to_phase"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_can_stop":
-            result = workflow_can_stop(task_id=arguments.get("task_id"))
-        elif name == "config_get_effective":
-            result = config_get_effective(
-                task_id=arguments.get("task_id"),
-                project_dir=arguments.get("project_dir")
-            )
-        elif name == "config_get_checkpoint":
-            result = config_get_checkpoint(
-                checkpoint=arguments["checkpoint"],
-                category=arguments["category"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "config_get_beads":
-            result = config_get_beads(
-                task_id=arguments.get("task_id"),
-                project_dir=arguments.get("project_dir")
-            )
-        elif name == "workflow_set_implementation_progress":
-            result = workflow_set_implementation_progress(
-                total_steps=arguments["total_steps"],
-                current_step=arguments.get("current_step", 0),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_complete_step":
-            result = workflow_complete_step(
-                step_id=arguments["step_id"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_add_human_decision":
-            result = workflow_add_human_decision(
-                checkpoint=arguments["checkpoint"],
-                decision=arguments["decision"],
-                notes=arguments.get("notes", ""),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_set_kb_inventory":
-            result = workflow_set_kb_inventory(
-                path=arguments["path"],
-                files=arguments["files"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_add_concern":
-            result = workflow_add_concern(
-                source=arguments["source"],
-                severity=arguments["severity"],
-                description=arguments["description"],
-                concern_id=arguments.get("concern_id"),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_address_concern":
-            result = workflow_address_concern(
-                concern_id=arguments["concern_id"],
-                addressed_by=arguments["addressed_by"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_concerns":
-            result = workflow_get_concerns(
-                task_id=arguments.get("task_id"),
-                unaddressed_only=arguments.get("unaddressed_only", False)
-            )
-        elif name == "workflow_save_discovery":
-            result = workflow_save_discovery(
-                category=arguments["category"],
-                content=arguments["content"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_discoveries":
-            result = workflow_get_discoveries(
-                category=arguments.get("category"),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_flush_context":
-            result = workflow_flush_context(
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_context_usage":
-            result = workflow_get_context_usage(
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_prune_old_outputs":
-            result = workflow_prune_old_outputs(
-                keep_last_n=arguments.get("keep_last_n", 5),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_search_memories":
-            result = workflow_search_memories(
-                query=arguments["query"],
-                task_ids=arguments.get("task_ids"),
-                category=arguments.get("category"),
-                max_results=arguments.get("max_results", 20)
-            )
-        elif name == "workflow_link_tasks":
-            result = workflow_link_tasks(
-                task_id=arguments["task_id"],
-                related_task_ids=arguments["related_task_ids"],
-                relationship=arguments.get("relationship", "related")
-            )
-        elif name == "workflow_get_linked_tasks":
-            result = workflow_get_linked_tasks(
-                task_id=arguments.get("task_id"),
-                include_memories=arguments.get("include_memories", False)
-            )
-        elif name == "workflow_record_model_error":
-            result = workflow_record_model_error(
-                model=arguments["model"],
-                error_type=arguments["error_type"],
-                error_message=arguments.get("error_message", ""),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_record_model_success":
-            result = workflow_record_model_success(
-                model=arguments["model"]
-            )
-        elif name == "workflow_get_available_model":
-            result = workflow_get_available_model(
-                preferred_model=arguments.get("preferred_model")
-            )
-        elif name == "workflow_get_resilience_status":
-            result = workflow_get_resilience_status()
-        elif name == "workflow_clear_model_cooldown":
-            result = workflow_clear_model_cooldown(
-                model=arguments["model"]
-            )
-        # Workflow Modes
-        elif name == "workflow_detect_mode":
-            result = workflow_detect_mode(
-                task_description=arguments["task_description"],
-                files_affected=arguments.get("files_affected")
-            )
-        elif name == "workflow_set_mode":
-            result = workflow_set_mode(
-                mode=arguments["mode"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_mode":
-            result = workflow_get_mode(
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_is_phase_in_mode":
-            result = workflow_is_phase_in_mode(
-                phase=arguments["phase"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_effort_level":
-            result = workflow_get_effort_level(
-                agent=arguments["agent"],
-                task_id=arguments.get("task_id")
-            )
-        # Cost Tracking
-        elif name == "workflow_get_agent_team_config":
-            result = workflow_get_agent_team_config(
-                feature=arguments["feature"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_record_cost":
-            result = workflow_record_cost(
-                agent=arguments["agent"],
-                model=arguments["model"],
-                input_tokens=arguments["input_tokens"],
-                output_tokens=arguments["output_tokens"],
-                duration_seconds=arguments.get("duration_seconds", 0),
-                compaction_tokens=arguments.get("compaction_tokens", 0),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_cost_summary":
-            result = workflow_get_cost_summary(
-                task_id=arguments.get("task_id")
-            )
-        # Parallelization
-        elif name == "workflow_start_parallel_phase":
-            result = workflow_start_parallel_phase(
-                phases=arguments["phases"],
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_complete_parallel_phase":
-            result = workflow_complete_parallel_phase(
-                phase=arguments["phase"],
-                result_summary=arguments.get("result_summary", ""),
-                concerns=arguments.get("concerns"),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_merge_parallel_results":
-            result = workflow_merge_parallel_results(
-                task_id=arguments.get("task_id"),
-                merge_strategy=arguments.get("merge_strategy", "deduplicate")
-            )
-        # Assertions
-        elif name == "workflow_add_assertion":
-            result = workflow_add_assertion(
-                assertion_type=arguments["assertion_type"],
-                definition=arguments["definition"],
-                step_id=arguments.get("step_id"),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_verify_assertion":
-            result = workflow_verify_assertion(
-                assertion_id=arguments["assertion_id"],
-                result=arguments["result"],
-                message=arguments.get("message", ""),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_assertions":
-            result = workflow_get_assertions(
-                step_id=arguments.get("step_id"),
-                status=arguments.get("status"),
-                task_id=arguments.get("task_id")
-            )
-        # Error Patterns
-        elif name == "workflow_record_error_pattern":
-            result = workflow_record_error_pattern(
-                error_signature=arguments["error_signature"],
-                error_type=arguments["error_type"],
-                solution=arguments["solution"],
-                tags=arguments.get("tags"),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_match_error":
-            result = workflow_match_error(
-                error_output=arguments["error_output"],
-                min_confidence=arguments.get("min_confidence", 0.5)
-            )
-        # Agent Performance
-        elif name == "workflow_record_concern_outcome":
-            result = workflow_record_concern_outcome(
-                concern_id=arguments["concern_id"],
-                outcome=arguments["outcome"],
-                notes=arguments.get("notes", ""),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_agent_performance":
-            result = workflow_get_agent_performance(
-                agent=arguments.get("agent"),
-                time_range_days=arguments.get("time_range_days", 30)
-            )
-        # Optional Phases
-        elif name == "workflow_enable_optional_phase":
-            result = workflow_enable_optional_phase(
-                phase=arguments["phase"],
-                reason=arguments.get("reason", ""),
-                task_id=arguments.get("task_id")
-            )
-        elif name == "workflow_get_optional_phases":
-            result = workflow_get_optional_phases(
-                task_id=arguments.get("task_id")
-            )
+        if name in TOOL_DISPATCH_TABLE:
+            func = TOOL_DISPATCH_TABLE[name]
+            result = func(**arguments)
         else:
             result = {"error": f"Unknown tool: {name}"}
 

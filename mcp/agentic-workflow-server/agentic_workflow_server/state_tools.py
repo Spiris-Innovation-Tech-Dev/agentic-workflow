@@ -1,8 +1,10 @@
 """
 State Management Tools for Agentic Workflow MCP Server
 
-Wraps the WorkflowState class to provide MCP tool implementations for
-workflow state management operations.
+This module provides a set of functions for managing the state of agentic workflow tasks.
+It handles initialization, transitions, issue tracking, and persistence of task-specific
+data to the local file system within the `.tasks/` directory. File locking is implemented
+to ensure data integrity during concurrent access.
 """
 
 import json
@@ -11,6 +13,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from filelock import FileLock
 
 
 PHASE_ORDER = [
@@ -85,8 +88,10 @@ def _find_active_task_dir() -> Optional[Path]:
 def _load_state(task_dir: Path) -> dict:
     state_file = task_dir / "state.json"
     if state_file.exists():
-        with open(state_file) as f:
-            return json.load(f)
+        lock_file = task_dir / "state.json.lock"
+        with FileLock(str(lock_file)):
+            with open(state_file) as f:
+                return json.load(f)
     return _create_default_state(task_dir.name)
 
 
@@ -118,8 +123,10 @@ def _save_state(task_dir: Path, state: dict) -> None:
     task_dir.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = datetime.now().isoformat()
     state_file = task_dir / "state.json"
-    with open(state_file, "w") as f:
-        json.dump(state, f, indent=2)
+    lock_file = task_dir / "state.json.lock"
+    with FileLock(str(lock_file)):
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
 
 def _get_next_task_id() -> str:
