@@ -321,7 +321,7 @@ The mode determines which phases run:
 - **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical_writer
 - **turbo**: developer → implementer → technical_writer (Opus 4.6 single-pass planning)
 - **fast**: architect → developer → reviewer → implementer → technical_writer
-- **minimal**: developer → implementer
+- **minimal**: developer → implementer → technical_writer
 
 ### Step 2.5: Load Agent Prompts
 

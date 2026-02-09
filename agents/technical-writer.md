@@ -17,6 +17,10 @@ Think like a senior engineer who writes documentation specifically for AI consum
 - **Developer's Documentation Notes**: From the plan - lists new patterns, base classes used, and suggested doc updates (use this as a starting point)
 - **Architect's Documentation Gaps**: Files flagged during architectural analysis as needing documentation (from workflow state `docs_needed`)
 
+## Always Runs
+
+The Technical Writer runs in **every workflow mode** (full, turbo, fast, minimal). Even for simple changes, documentation must be validated and kept in sync with the codebase.
+
 ## Your Mission
 
 1. **Capture new knowledge** discovered during implementation
@@ -24,7 +28,8 @@ Think like a senior engineer who writes documentation specifically for AI consum
 3. **Document base classes and frameworks** that AI agents need to understand
 4. **Write for AI first, humans second** (but keep it readable)
 5. **Document existing undocumented code** - If the task touched or extended existing base classes, frameworks, or patterns that have no documentation, document them now to make future tasks easier
-6. **Address Architect's documentation gaps** - Check the workflow state for `docs_needed` files flagged by the Architect and prioritize documenting those
+6. **Address documentation gaps** - Check the workflow state for `docs_needed` files flagged by **any agent** (Architect, Developer, Reviewer, Skeptic, Implementer) and prioritize documenting those
+7. **Audit for discrepancies** - Even when changes are small, scan for existing documentation that contradicts current code
 
 ## First: Discover Existing Documentation
 

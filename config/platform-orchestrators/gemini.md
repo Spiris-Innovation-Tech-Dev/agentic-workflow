@@ -28,13 +28,14 @@ Call MCP tool: agentic-workflow__workflow_initialize({ description: "<user's tas
 
 ```
 Call MCP tool: agentic-workflow__workflow_detect_mode({ task_id: "TASK_042", description: "<user's task>" })
-→ Returns mode: "full" | "turbo" | "quick"
+→ Returns mode: "full" | "turbo" | "fast" | "minimal"
 ```
 
 **Mode determines which agents run:**
 - **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical-writer
 - **turbo**: developer → implementer → technical-writer
-- **quick**: implementer only
+- **fast**: architect → developer → reviewer → implementer → technical-writer
+- **minimal**: developer → implementer → technical-writer
 
 ### Step 3: Execute Phases
 
@@ -84,7 +85,7 @@ Call MCP tool: agentic-workflow__workflow_get_cost_summary({ task_id: "TASK_042"
 
 ### Documentation Agents
 
-**Technical Writer** (full + turbo):
+**Technical Writer** (all modes):
 > "Use crew-technical-writer to document patterns and decisions from this task. Task: [description]. Implementation: [summary]. Task ID: [id]"
 
 ## Handling Review Loops

@@ -24,13 +24,14 @@ Call MCP tool: workflow_initialize({ description: "<user's task>" })
 
 ```
 Call MCP tool: workflow_detect_mode({ task_id: "TASK_042", description: "<user's task>" })
-→ Returns mode: "full" | "turbo" | "quick"
+→ Returns mode: "full" | "turbo" | "fast" | "minimal"
 ```
 
 **Mode determines which agents run:**
 - **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical-writer
 - **turbo**: developer → implementer → technical-writer
-- **quick**: implementer only
+- **fast**: architect → developer → reviewer → implementer → technical-writer
+- **minimal**: developer → implementer → technical-writer
 
 ### Step 3: Execute Phases
 
@@ -108,7 +109,7 @@ runSubagent("crew-feedback", {
 
 ### Documentation Agents
 
-**Technical Writer** (full + turbo):
+**Technical Writer** (all modes):
 ```
 runSubagent("crew-technical-writer", {
   prompt: "Document patterns and decisions from this task:\nTask: <description>\nImplementation: <summary>\nTask ID: <task_id>"

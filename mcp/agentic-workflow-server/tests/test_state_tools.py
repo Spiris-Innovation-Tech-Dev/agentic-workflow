@@ -593,6 +593,15 @@ class TestWorkflowModes:
         result2 = workflow_is_phase_in_mode("architect", task_id="TASK_TEST_103")
         assert result2["in_mode"] is False
 
+    def test_technical_writer_in_all_modes(self, clean_tasks_dir):
+        for mode in ["full", "turbo", "fast", "minimal"]:
+            task_id = f"TASK_TEST_TW_{mode}"
+            workflow_initialize(task_id=task_id)
+            workflow_set_mode(mode, task_id=task_id)
+
+            result = workflow_is_phase_in_mode("technical_writer", task_id=task_id)
+            assert result["in_mode"] is True, f"technical_writer should be in {mode} mode"
+
 
 class TestCostTracking:
     """Test cost tracking and reporting."""

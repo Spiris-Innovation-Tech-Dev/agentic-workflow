@@ -526,7 +526,7 @@ workflow_modes:
 | **full** | All 7 (Arch, Dev, Rev, Skeptic, Impl, Feedback, TW) | Complex features, critical changes | $0.50+ |
 | **turbo** | Developer, Implementer, Technical Writer | Standard features (Opus 4.6 single-pass) | $0.15 |
 | **fast** | Skip Skeptic and Feedback | Standard changes needing review | $0.25 |
-| **minimal** | Developer and Implementer only | Simple fixes, typos | $0.10 |
+| **minimal** | Developer, Implementer, Technical Writer | Simple fixes, typos | $0.10 |
 | **auto** | Auto-detect based on task description | Default | varies |
 
 #### Effort Levels

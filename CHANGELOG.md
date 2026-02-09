@@ -16,6 +16,9 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - 5 new tests for `.gemini` config path detection and precedence
 
 ### Changed
+- **Technical Writer always runs** — included in all workflow modes (full, turbo, fast, minimal) to keep documentation in sync
+- All agents (Developer, Reviewer, Skeptic, Implementer, Feedback) now flag documentation gaps via `workflow_mark_docs_needed`
+- Platform orchestrators fixed: "quick" mode renamed to correct "fast"/"minimal" names, added missing mode definitions
 - `install.sh` now uses `scripts/build-agents.py claude` instead of inline shell loop
 - `install-copilot.ps1` now uses `scripts/build-agents.py copilot` instead of inline PowerShell loop
 - `install-copilot.ps1` cleans up old-format `crew-*.md` files (without `.agent.md` extension) on install

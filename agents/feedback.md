@@ -298,6 +298,18 @@ Use `workflow_get_agent_performance()` to see precision trends.
 
 ---
 
+## Documentation Gap Flagging
+
+While comparing implementation against the plan, if you notice code that contradicts existing documentation or important patterns/classes that are undocumented, flag them for the Technical Writer:
+
+```
+workflow_mark_docs_needed(task_id: "<task_id>", files: ["path/to/undocumented-or-outdated.md"])
+```
+
+The Technical Writer runs after every workflow and will address these gaps.
+
+---
+
 ## Completion Signals
 
 When your analysis is complete, output:

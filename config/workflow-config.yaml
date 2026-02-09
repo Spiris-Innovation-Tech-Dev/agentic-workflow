@@ -366,10 +366,11 @@ workflow_modes:
       estimated_cost: "$0.25"
 
     minimal:
-      description: "Developer and Implementer only - simple fixes, typos"
+      description: "Developer, Implementer, and Technical Writer - simple fixes, typos"
       phases:
         - developer
         - implementer
+        - technical_writer
       estimated_cost: "$0.10"
 
   # Auto-detection rules for determining mode
@@ -453,6 +454,7 @@ effort_levels:
   minimal:
     developer: medium
     implementer: medium
+    technical_writer: medium
 
 # Parallelization Configuration
 parallelization:

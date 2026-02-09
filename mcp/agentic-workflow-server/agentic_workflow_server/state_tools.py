@@ -1747,8 +1747,8 @@ WORKFLOW_MODES = {
         "estimated_cost": "$0.25"
     },
     "minimal": {
-        "description": "Developer and Implementer only - simple fixes, typos",
-        "phases": ["developer", "implementer"],
+        "description": "Developer, Implementer, and Technical Writer - simple fixes, typos",
+        "phases": ["developer", "implementer", "technical_writer"],
         "estimated_cost": "$0.10"
     }
 }
@@ -1778,7 +1778,8 @@ EFFORT_LEVELS = {
     },
     "minimal": {
         "developer": "medium",
-        "implementer": "medium"
+        "implementer": "medium",
+        "technical_writer": "medium"
     }
 }
 
