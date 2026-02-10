@@ -10,6 +10,7 @@ to ensure data integrity during concurrent access.
 import json
 import os
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -42,8 +43,45 @@ DISCOVERY_CATEGORIES = [
 ]
 
 
+_cached_tasks_dir: Optional[Path] = None
+
+
+def _resolve_main_repo_tasks_dir() -> Optional[Path]:
+    """Resolve .tasks/ dir to the main repo when running in a git worktree.
+
+    Uses `git rev-parse --git-common-dir`:
+    - Normal repo: returns `.git` (relative) → cwd/.tasks/
+    - Worktree: returns absolute path to main .git → main_repo/.tasks/
+    - Not in git: returns None → fall back to cwd/.tasks/
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+
+        git_common_dir = Path(result.stdout.strip())
+
+        if git_common_dir.is_absolute():
+            # Worktree: git-common-dir is absolute path to main .git
+            return git_common_dir.parent / ".tasks"
+        else:
+            # Normal repo: git-common-dir is relative (e.g., ".git")
+            return Path.cwd() / ".tasks"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+
 def get_tasks_dir() -> Path:
-    return Path.cwd() / ".tasks"
+    global _cached_tasks_dir
+    if _cached_tasks_dir is not None:
+        return _cached_tasks_dir
+
+    resolved = _resolve_main_repo_tasks_dir()
+    _cached_tasks_dir = resolved if resolved else Path.cwd() / ".tasks"
+    return _cached_tasks_dir
 
 
 def find_task_dir(task_id: Optional[str] = None) -> Optional[Path]:
@@ -114,6 +152,7 @@ def _create_default_state(task_id: str) -> dict:
             "files": []
         },
         "concerns": [],
+        "worktree": None,
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat()
     }
@@ -459,6 +498,17 @@ def workflow_can_stop(task_id: Optional[str] = None) -> dict[str, Any]:
             "can_stop": True,
             "reason": "Workflow not started"
         }
+
+    # Worktree-setup tasks: worktree active but no phases completed yet
+    worktree = state.get("worktree")
+    if worktree and worktree.get("status") == "active":
+        if not state.get("phases_completed"):
+            return {
+                "can_stop": True,
+                "reason": "Worktree created — workflow will run in the worktree directory",
+                "task_id": state.get("task_id"),
+                "worktree": worktree
+            }
 
     completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
     if state.get("phase"):
@@ -3093,4 +3143,157 @@ def workflow_get_optional_phases(
         "task_id": state.get("task_id"),
         "optional_phases": state.get("optional_phases", []),
         "reasons": state.get("optional_phase_reasons", {})
+    }
+
+
+# ============================================================================
+# Git Worktree Support
+# ============================================================================
+
+def workflow_create_worktree(
+    task_id: Optional[str] = None,
+    base_path: Optional[str] = None,
+    base_branch: str = "main"
+) -> dict[str, Any]:
+    """Record worktree metadata in state and return git commands for the orchestrator.
+
+    The MCP server does NOT execute git commands — it records metadata and returns
+    the commands for the orchestrator to run.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+        base_path: Directory for worktrees. Defaults to ../REPO-worktrees/.
+        base_branch: Branch to base the worktree on.
+
+    Returns:
+        Worktree metadata and git commands to execute.
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    resolved_task_id = state.get("task_id", task_dir.name)
+
+    if state.get("worktree") and state["worktree"].get("status") == "active":
+        return {
+            "success": False,
+            "error": f"Worktree already exists for {resolved_task_id}",
+            "worktree": state["worktree"]
+        }
+
+    # Determine repo name from cwd
+    repo_name = Path.cwd().name
+    if not base_path:
+        base_path = f"../{repo_name}-worktrees"
+
+    branch_name = f"crew/{resolved_task_id.lower().replace('_', '-')}"
+    worktree_path = f"{base_path}/{resolved_task_id}"
+
+    worktree_metadata = {
+        "status": "active",
+        "path": worktree_path,
+        "branch": branch_name,
+        "base_branch": base_branch,
+        "created_at": datetime.now().isoformat()
+    }
+
+    state["worktree"] = worktree_metadata
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": resolved_task_id,
+        "worktree": worktree_metadata,
+        "git_commands": [
+            f"git worktree add -b {branch_name} {worktree_path} {base_branch}"
+        ],
+        "message": f"Run the git commands above, then work in {worktree_path}"
+    }
+
+
+def workflow_get_worktree_info(
+    task_id: Optional[str] = None
+) -> dict[str, Any]:
+    """Get worktree metadata for a task.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+
+    Returns:
+        Worktree metadata or indication that no worktree exists.
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+
+    return {
+        "task_id": state.get("task_id"),
+        "worktree": state.get("worktree"),
+        "has_worktree": state.get("worktree") is not None and state["worktree"].get("status") == "active"
+    }
+
+
+def workflow_cleanup_worktree(
+    task_id: Optional[str] = None,
+    remove_branch: bool = True
+) -> dict[str, Any]:
+    """Mark worktree as cleaned up and return git commands for the orchestrator.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+        remove_branch: Whether to include branch deletion in git commands.
+
+    Returns:
+        Git commands to execute for cleanup.
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    resolved_task_id = state.get("task_id", task_dir.name)
+
+    worktree = state.get("worktree")
+    if not worktree:
+        return {
+            "success": False,
+            "error": f"No worktree configured for {resolved_task_id}"
+        }
+
+    if worktree.get("status") == "cleaned":
+        return {
+            "success": False,
+            "error": f"Worktree already cleaned for {resolved_task_id}"
+        }
+
+    worktree_path = worktree["path"]
+    branch_name = worktree["branch"]
+
+    git_commands = [
+        f"git worktree remove {worktree_path}"
+    ]
+    if remove_branch:
+        git_commands.append(f"git branch -d {branch_name}")
+
+    state["worktree"]["status"] = "cleaned"
+    state["worktree"]["cleaned_at"] = datetime.now().isoformat()
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": resolved_task_id,
+        "worktree": state["worktree"],
+        "git_commands": git_commands,
+        "message": f"Worktree marked as cleaned. Run the git commands above to finalize."
     }

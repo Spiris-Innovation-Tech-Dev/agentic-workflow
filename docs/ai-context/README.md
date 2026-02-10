@@ -83,4 +83,18 @@ The agentic-workflow MCP server provides tools for AI agents. Key tool groups:
 - `workflow_record_error_pattern` / `workflow_match_error` - Learn from and match error patterns
 - `workflow_record_concern_outcome` / `workflow_get_agent_performance` - Track agent precision
 
+### Git Worktree Support
+
+Worktrees enable parallel `/crew` workflows in isolated directories. Available on all platforms:
+- **Claude Code**: `/crew-worktree "task"` (slash command)
+- **Copilot CLI**: `@crew-worktree "task"` (agent)
+- **Gemini CLI**: `@crew-worktree "task"` (agent)
+
+MCP tools (record metadata, return git commands — do not execute git directly):
+- `workflow_create_worktree` - Record worktree metadata and get git commands to execute
+- `workflow_get_worktree_info` - Check if a task has an active worktree
+- `workflow_cleanup_worktree` - Mark worktree as cleaned and get cleanup git commands
+
+The worktree branches from the current branch and `.tasks/` resolves back to the main repo via `git rev-parse --git-common-dir`.
+
 See the MCP server source at `mcp/agentic-workflow-server/` for full API documentation.

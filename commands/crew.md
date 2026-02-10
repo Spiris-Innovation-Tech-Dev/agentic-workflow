@@ -806,6 +806,13 @@ When all steps complete:
 4. Ask human to approve commit
 5. Update lessons-learned.md
 6. **Record concern outcomes** (optional): If any concerns were raised, prompt user to mark outcomes for agent performance tracking
+7. **Worktree cleanup** (if worktree was used):
+   - Call `workflow_get_worktree_info()` to check if a worktree is active
+   - Based on `worktree.cleanup_on_complete` config:
+     - `prompt`: Ask the user whether to merge the branch and remove the worktree
+     - `auto`: Call `workflow_cleanup_worktree()` and execute the returned git commands
+     - `never`: Leave the worktree in place, inform the user
+   - If merging: suggest `git merge <branch>` from the main repo before cleanup
 
 ## State Management (Enforced)
 

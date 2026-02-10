@@ -628,3 +628,10 @@ agent_performance:
     - performance
     - error_handling
     - edge_case
+
+# Git Worktree Support
+# Enables parallel /crew workflows in isolated worktrees
+worktree:
+  base_path: "../{repo_name}-worktrees"
+  branch_prefix: "crew/"
+  cleanup_on_complete: prompt  # prompt | auto | never

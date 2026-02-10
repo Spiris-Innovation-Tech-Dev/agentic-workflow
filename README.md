@@ -33,6 +33,7 @@ Complex development tasks require multiple perspectives: architecture considerat
 - **Gemini + Repomix integration** - Large-context codebase analysis for research phases
 - **State management** - Resume interrupted workflows from any point
 - **Model resilience** - Automatic failover with exponential backoff across model fallback chain
+- **Git worktree support** - Isolated parallel `/crew` workflows via `--worktree`
 - **Agent teams** - Experimental parallel agent execution via Claude Code agent teams
 - **Beads integration** - Optional issue tracking integration
 - **Technical documentation** - Automatic AI-context documentation updates
@@ -100,12 +101,12 @@ Existing config files are backed up with a timestamp.
 
 ### Build Script (Advanced)
 
-The `scripts/build-agents.py` script transforms shared agent sources into platform-specific formats:
+The `scripts/build-agents.py` script transforms shared agent sources (`agents/*.md`) into platform-specific formats. Some agents are "command agents" (like `crew-worktree`) — on Claude these become slash commands (`commands/`), on Copilot/Gemini they become regular agents with full tool access.
 
 ```bash
-python3 scripts/build-agents.py claude                    # Build to ~/.claude/agents/
-python3 scripts/build-agents.py copilot                   # Build to .github/agents/
-python3 scripts/build-agents.py gemini                    # Build to ~/.gemini/agents/
+python3 scripts/build-agents.py claude                    # Build agents/ + commands/ to ~/.claude/
+python3 scripts/build-agents.py copilot                   # Build .github/agents/
+python3 scripts/build-agents.py gemini                    # Build ~/.gemini/agents/
 python3 scripts/build-agents.py copilot --output /path    # Custom output directory
 python3 scripts/build-agents.py --list-platforms           # Show available platforms
 ```
@@ -138,6 +139,16 @@ Migrate all API endpoints to v2:
 - Add backward compatibility
 - Update all tests
 ```
+
+### Parallel work with git worktrees
+```bash
+# Claude Code
+/crew-worktree "Add user profiles"
+
+# Copilot CLI / Gemini CLI
+@crew-worktree "Add user profiles"
+```
+Creates an isolated worktree — then run `/crew resume TASK_XXX` from there.
 
 ### With beads issue tracking
 ```bash
@@ -306,6 +317,25 @@ Main command for starting or resuming workflows.
 | `--parallel` | Run Reviewer+Skeptic in parallel |
 | `--beads <issue>` | Link to beads issue (e.g., `AUTH-42`) |
 | `--task <file>` | Read task from markdown file |
+
+### `/crew-worktree`
+Create an isolated git worktree for a task, then stop. Available on all platforms.
+
+```bash
+# Claude Code
+/crew-worktree "Add user profiles"
+/crew-worktree SAD-289
+
+# Copilot CLI
+@crew-worktree "Add user profiles"
+
+# Gemini CLI
+@crew-worktree "Add user profiles"
+```
+
+Creates a worktree branch (`crew/task-xxx`) and working directory, prints the path, and stops. Open a terminal in the worktree directory and run `/crew resume TASK_XXX` to start the workflow there. This keeps parallel tasks isolated from each other.
+
+WSL/Windows note: the worktree's `.git` paths are automatically converted to relative paths so both WSL and Windows tools (Visual Studio, PowerShell git) can read the worktree.
 
 ### `/crew-status`
 Display status of all active workflows.
@@ -582,6 +612,17 @@ cost_tracking:
 
 Tracks per-agent token usage (input, output, compaction) and calculates cost. Opus uses long-context pricing ($10/$37.50 per M) for >200K input tokens.
 
+#### Git Worktrees
+
+```yaml
+worktree:
+  base_path: "../{repo_name}-worktrees"
+  branch_prefix: "crew/"
+  cleanup_on_complete: prompt  # prompt | auto | never
+```
+
+When `--worktree` is passed, the orchestrator creates an isolated git worktree for the task. Each worktree gets its own branch (`crew/task-xxx`) and working directory, allowing multiple `/crew` sessions to run in parallel without file conflicts. The `.tasks/` directory is shared — worktree agents resolve back to the main repo's `.tasks/` via `git rev-parse --git-common-dir`.
+
 #### Agent Teams (Experimental)
 
 ```yaml
@@ -696,6 +737,9 @@ Agents can save discoveries to persistent memory that survives context compactio
 | `workflow_record_cost` | Record token usage and cost (including compaction tokens) |
 | `workflow_get_cost_summary` | Get cost breakdown by agent and model |
 | `workflow_get_agent_team_config` | Check if agent teams are enabled for a feature |
+| `workflow_create_worktree` | Record worktree metadata and get git commands |
+| `workflow_get_worktree_info` | Check worktree status for a task |
+| `workflow_cleanup_worktree` | Mark worktree cleaned and get cleanup commands |
 
 **Discovery Categories:**
 
@@ -763,6 +807,7 @@ Agents output structured signals for state management:
 | Large refactor, review tomorrow | `/crew --loop-mode --no-checkpoints` |
 | Security-sensitive changes | `/crew` (never skip checkpoints) |
 | Overnight migration | `/crew --loop-mode --no-checkpoints --max-iterations 50` |
+| Parallel tasks on same repo | `/crew-worktree "task"` (one worktree per task) |
 
 ## Gemini + Repomix Integration
 
@@ -839,13 +884,14 @@ All uninstallers preserve task state in `.tasks/`.
 | Feature | Claude Code | Copilot CLI | Gemini CLI |
 |---------|:-----------:|:-----------:|:----------:|
 | **Agents** | All 12 | All 12 | All 12 |
-| **MCP Tools** | 52 tools | 52 tools | 52 tools |
+| **MCP Tools** | 55 tools | 55 tools | 55 tools |
 | **State Management** | `.tasks/` | `.tasks/` | `.tasks/` |
 | **Config Cascade** | Global → Project → Task | Global → Project → Task | Global → Project → Task |
 | **Workflow Modes** | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto |
 | **Cost Tracking** | Per-agent breakdown | Per-agent breakdown | Per-agent breakdown |
 | **Memory/Discoveries** | Persistent | Persistent | Persistent |
 | **Orchestration** | `/crew` command (automated) | `/agent crew-orchestrator` (sub-agent chaining) | Autonomous routing (description-based) |
+| **Worktree Support** | `/crew-worktree` (command) | `@crew-worktree` (agent) | `@crew-worktree` (agent) |
 | **Slash Commands** | `/crew`, `/crew-ask`, etc. | `/agent` only | Custom commands (`.toml`) |
 | **Hook Enforcement** | PreToolUse, Stop hooks | Not available | Not available |
 | **Agent Teams** | Experimental parallel agents | Not available | Not available |
@@ -865,6 +911,7 @@ All uninstallers preserve task state in `.tasks/`.
 - Agents installed to `.github/agents/` as `.agent.md` files with YAML frontmatter
 - Orchestrator generates `crew.agent.md` which chains sub-agents via Copilot's agent delegation
 - Invoke with `/agent crew-orchestrator` to run the full workflow, or reference individual agents (e.g., "Use crew-architect to...")
+- Worktrees: `@crew-worktree "task description"` (generated as agent with full tool access)
 - MCP server registered in `~/.copilot/mcp-config.json`
 - Instructions in `.github/copilot-instructions.md`
 - No hook enforcement — the MCP tools track state but don't block invalid operations
@@ -874,6 +921,7 @@ All uninstallers preserve task state in `.tasks/`.
 - Sub-agents are **experimental** — requires `"experimental": {"enableAgents": true}` in `settings.json`
 - Routing is autonomous: Gemini's main agent delegates to sub-agents based on their `description` field
 - Each sub-agent has restricted tool access (read-only agents can't write files)
+- Worktrees: `@crew-worktree "task description"` (generated as agent with shell + file tools)
 - MCP server configured in `~/.gemini/settings.json`
 - Instructions in `GEMINI.md`
 - No hook enforcement
@@ -882,8 +930,8 @@ All uninstallers preserve task state in `.tasks/`.
 
 | Component | Path | Description |
 |-----------|------|-------------|
-| Agent prompts | `agents/*.md` | Source of truth for all agent behavior |
-| MCP server | `mcp/agentic-workflow-server/` | 52 workflow management tools |
+| Agent prompts | `agents/*.md` | Source of truth for all agent and command behavior |
+| MCP server | `mcp/agentic-workflow-server/` | 55 workflow management tools |
 | Task state | `.tasks/TASK_XXX/` | Phase tracking, discoveries, progress |
 | Config | `workflow-config.yaml` | Checkpoints, models, modes, limits |
 | Build script | `scripts/build-agents.py` | Transforms agents for each platform |

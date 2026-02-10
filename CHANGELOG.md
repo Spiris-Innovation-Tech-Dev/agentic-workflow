@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-10
+
+### Added
+- **Git worktree support** — `/crew-worktree` creates isolated worktrees per task, enabling parallel workflows on the same repo without file conflicts
+- `/crew-worktree` available on all 3 platforms: Claude Code (slash command), Copilot CLI (`@crew-worktree`), Gemini CLI (`@crew-worktree`)
+- Single source `agents/crew-worktree.md` → build script generates platform-specific output
+- `COMMAND_AGENTS` concept in `build-agents.py` — command-type agents generate slash commands for Claude and full-access agents for Copilot/Gemini
+- 3 new MCP tools: `workflow_create_worktree`, `workflow_get_worktree_info`, `workflow_cleanup_worktree` (record metadata and return git commands; do not execute git directly)
+- Worktree-aware `get_tasks_dir()` — resolves `.tasks/` back to the main repo via `git rev-parse --git-common-dir` when running in a worktree
+- Worktree config section in `workflow-config.yaml` (`base_path`, `branch_prefix`, `cleanup_on_complete`)
+- WSL/Windows compatibility: worktree `.git` paths automatically converted to relative paths
+- Worktree cleanup in crew.md Step 9 (Completion)
+- 12 new tests in `TestWorktreeSupport`
+
+### Changed
+- Platform preambles updated: "Do NOT use git worktree" changed to "Do NOT use git worktree directly (use MCP tools instead)"
+- Build script now generates `commands/` (Claude) in addition to `agents/` for command-type agents
+- MCP tool count: 52 → 55
+
 ## [0.3.0] - 2026-02-09
 
 ### Added

@@ -85,6 +85,10 @@ from .state_tools import (
     # Optional phases
     workflow_enable_optional_phase,
     workflow_get_optional_phases,
+    # Worktree support
+    workflow_create_worktree,
+    workflow_get_worktree_info,
+    workflow_cleanup_worktree,
 )
 from .config_tools import (
     config_get_effective,
@@ -1165,6 +1169,63 @@ TOOLS = [
             "required": []
         }
     ),
+    # Worktree Support
+    Tool(
+        name="workflow_create_worktree",
+        description="Record worktree metadata in state and return git commands for the orchestrator to execute. Does NOT run git commands directly.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "base_path": {
+                    "type": "string",
+                    "description": "Directory for worktrees. Defaults to ../REPO-worktrees/."
+                },
+                "base_branch": {
+                    "type": "string",
+                    "description": "Branch to base the worktree on (default: main)",
+                    "default": "main"
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_get_worktree_info",
+        description="Get worktree metadata for a task, including path, branch, and status.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_cleanup_worktree",
+        description="Mark worktree as cleaned and return git commands for the orchestrator to execute. Does NOT run git commands directly.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "remove_branch": {
+                    "type": "boolean",
+                    "description": "Whether to include branch deletion in cleanup commands (default: true)",
+                    "default": True
+                }
+            },
+            "required": []
+        }
+    ),
 ]
 
 
@@ -1227,6 +1288,9 @@ TOOL_DISPATCH_TABLE = {
     "workflow_get_agent_performance": workflow_get_agent_performance,
     "workflow_enable_optional_phase": workflow_enable_optional_phase,
     "workflow_get_optional_phases": workflow_get_optional_phases,
+    "workflow_create_worktree": workflow_create_worktree,
+    "workflow_get_worktree_info": workflow_get_worktree_info,
+    "workflow_cleanup_worktree": workflow_cleanup_worktree,
 }
 
 

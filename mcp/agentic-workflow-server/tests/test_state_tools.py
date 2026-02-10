@@ -82,6 +82,10 @@ from agentic_workflow_server.state_tools import (
     # Optional phases
     workflow_enable_optional_phase,
     workflow_get_optional_phases,
+    # Worktree support
+    workflow_create_worktree,
+    workflow_get_worktree_info,
+    workflow_cleanup_worktree,
     # Helpers
     get_tasks_dir,
     DISCOVERY_CATEGORIES,
@@ -1137,6 +1141,107 @@ class TestAgentTeamConfig:
 
         assert result["enabled"] is True
         assert result["settings"]["delegate_mode"] is True
+
+
+class TestWorktreeSupport:
+    """Test git worktree state tracking."""
+
+    def test_default_state_has_worktree_none(self, clean_tasks_dir):
+        result = workflow_initialize(task_id="TASK_TEST_WT_001")
+        assert result["success"] is True
+
+        state_file = clean_tasks_dir / "TASK_TEST_WT_001" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        assert state["worktree"] is None
+
+    def test_create_worktree_records_state(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_002")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_002")
+
+        assert result["success"] is True
+        assert result["worktree"]["status"] == "active"
+        assert "crew/" in result["worktree"]["branch"]
+        assert result["worktree"]["base_branch"] == "main"
+
+    def test_create_worktree_returns_git_commands(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_003")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_003")
+
+        assert "git_commands" in result
+        assert len(result["git_commands"]) == 1
+        assert "git worktree add" in result["git_commands"][0]
+
+    def test_create_worktree_custom_base_path(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_004")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_004", base_path="/tmp/wt")
+
+        assert result["success"] is True
+        assert result["worktree"]["path"] == "/tmp/wt/TASK_TEST_WT_004"
+
+    def test_create_worktree_rejects_duplicates(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_005")
+        workflow_create_worktree(task_id="TASK_TEST_WT_005")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_005")
+
+        assert result["success"] is False
+        assert "already exists" in result["error"]
+
+    def test_get_worktree_info_with_worktree(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_006")
+        workflow_create_worktree(task_id="TASK_TEST_WT_006")
+        result = workflow_get_worktree_info(task_id="TASK_TEST_WT_006")
+
+        assert result["has_worktree"] is True
+        assert result["worktree"]["status"] == "active"
+
+    def test_get_worktree_info_without_worktree(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_007")
+        result = workflow_get_worktree_info(task_id="TASK_TEST_WT_007")
+
+        assert result["has_worktree"] is False
+        assert result["worktree"] is None
+
+    def test_cleanup_marks_state_as_cleaned(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_008")
+        workflow_create_worktree(task_id="TASK_TEST_WT_008")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_008")
+
+        assert result["success"] is True
+        assert result["worktree"]["status"] == "cleaned"
+        assert "cleaned_at" in result["worktree"]
+
+    def test_cleanup_with_branch_removal(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_009")
+        workflow_create_worktree(task_id="TASK_TEST_WT_009")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_009", remove_branch=True)
+
+        assert len(result["git_commands"]) == 2
+        assert "git branch -d" in result["git_commands"][1]
+
+    def test_cleanup_without_branch_removal(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_010")
+        workflow_create_worktree(task_id="TASK_TEST_WT_010")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_010", remove_branch=False)
+
+        assert len(result["git_commands"]) == 1
+        assert "git worktree remove" in result["git_commands"][0]
+
+    def test_cleanup_rejects_already_cleaned(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_011")
+        workflow_create_worktree(task_id="TASK_TEST_WT_011")
+        workflow_cleanup_worktree(task_id="TASK_TEST_WT_011")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_011")
+
+        assert result["success"] is False
+        assert "already cleaned" in result["error"]
+
+    def test_cleanup_rejects_no_worktree(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_012")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_012")
+
+        assert result["success"] is False
+        assert "No worktree configured" in result["error"]
 
 
 if __name__ == "__main__":

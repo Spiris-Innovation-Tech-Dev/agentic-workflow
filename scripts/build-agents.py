@@ -38,6 +38,14 @@ AGENT_DESCRIPTIONS = {
     "api-guardian": "API Guardian — protects API contracts and backward compatibility",
     "accessibility-reviewer": "Accessibility Reviewer — ensures WCAG compliance",
     "orchestrator": "Workflow Orchestrator — coordinates the multi-agent workflow",
+    "crew-worktree": "Worktree Creator — creates isolated git worktrees for parallel crew workflows",
+}
+
+# Agents that are invoked as commands rather than sub-agents.
+# For Claude: generates commands/{name}.md with $ARGS substitution
+# For Copilot/Gemini: generates as regular agents with full tool access
+COMMAND_AGENTS = {
+    "crew-worktree",
 }
 
 # Gemini sub-agent tool restrictions per agent role
@@ -53,6 +61,7 @@ GEMINI_AGENT_TOOLS = {
     "performance-analyst":   ["read_file", "search_file_content", "list_directory", "run_shell_command"],
     "api-guardian":          ["read_file", "search_file_content", "list_directory"],
     "accessibility-reviewer": ["read_file", "search_file_content", "list_directory"],
+    "crew-worktree":          ["read_file", "write_file", "list_directory", "run_shell_command"],
 }
 
 
@@ -69,41 +78,69 @@ def list_agents() -> list[Path]:
 # Claude adapter
 # ---------------------------------------------------------------------------
 
+# Claude command wrappers: appended to command agent content for $ARGS substitution
+COMMAND_SUFFIXES = {
+    "crew-worktree": "\nNow, process the arguments and create the worktree:\n\nArguments: $ARGS\n",
+}
+
+
+def _claude_command_wrap(name: str, body: str) -> str:
+    """Wrap agent content as a Claude Code slash command with $ARGS substitution."""
+    suffix = COMMAND_SUFFIXES.get(name, "\n\nArguments: $ARGS\n")
+    return body.rstrip() + "\n" + suffix
+
+
 def build_claude(output_dir: Path):
-    """Build agents in Claude Code format: plain markdown in {output}/agents/."""
+    """Build agents in Claude Code format: plain markdown in {output}/agents/ and commands/."""
     agents_out = output_dir / "agents"
     agents_out.mkdir(parents=True, exist_ok=True)
+    commands_out = output_dir / "commands"
 
     preamble_path = PREAMBLES_DIR / "claude.md"
     preamble = read_file(preamble_path) if preamble_path.exists() else ""
 
-    count = 0
+    agent_count = 0
+    cmd_count = 0
     for agent_path in list_agents():
         name = agent_path.stem  # e.g. "architect"
         body = read_file(agent_path)
 
-        if name == "orchestrator":
-            content = body
+        if name in COMMAND_AGENTS:
+            commands_out.mkdir(parents=True, exist_ok=True)
+            content = _claude_command_wrap(name, body)
+            dest = commands_out / agent_path.name
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + commands/{agent_path.name}")
+            cmd_count += 1
         else:
-            content = preamble + "\n" + body
+            if name == "orchestrator":
+                content = body
+            else:
+                content = preamble + "\n" + body
 
-        dest = agents_out / agent_path.name
-        dest.write_text(content, encoding="utf-8")
-        print(f"  + {agent_path.name}")
-        count += 1
+            dest = agents_out / agent_path.name
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + agents/{agent_path.name}")
+            agent_count += 1
 
-    print(f"\n  {count} agents written to {agents_out}")
+    print(f"\n  {agent_count} agents + {cmd_count} commands written to {output_dir}")
 
 
 # ---------------------------------------------------------------------------
 # Copilot adapter
 # ---------------------------------------------------------------------------
 
+def _agent_output_name(name: str) -> str:
+    """Return platform output name: add crew- prefix unless name already has it."""
+    return name if name.startswith("crew-") else f"crew-{name}"
+
+
 def _copilot_frontmatter(name: str, description: str, *, is_orchestrator: bool = False) -> str:
     """Generate YAML frontmatter for a .agent.md file."""
+    out_name = _agent_output_name(name)
     lines = [
         "---",
-        f"name: crew-{name}",
+        f"name: {out_name}",
         f'description: "{description}"',
     ]
     if is_orchestrator:
@@ -143,12 +180,14 @@ def build_copilot(output_dir: Path):
             continue
 
         desc = AGENT_DESCRIPTIONS.get(name, f"Crew agent: {name}")
-        frontmatter = _copilot_frontmatter(name, desc)
+        is_command = name in COMMAND_AGENTS
+        frontmatter = _copilot_frontmatter(name, desc, is_orchestrator=is_command)
 
+        out_name = _agent_output_name(name)
         content = frontmatter + "\n" + preamble + "\n" + body
-        dest = agents_out / f"crew-{name}.agent.md"
+        dest = agents_out / f"{out_name}.agent.md"
         dest.write_text(content, encoding="utf-8")
-        print(f"  + crew-{name}.agent.md")
+        print(f"  + {out_name}.agent.md")
         count += 1
 
     print(f"\n  {count} agents + orchestrator written to {agents_out}")
@@ -160,9 +199,10 @@ def build_copilot(output_dir: Path):
 
 def _gemini_frontmatter(name: str, description: str, tools: list[str]) -> str:
     """Generate YAML frontmatter for a Gemini sub-agent .md file."""
+    out_name = _agent_output_name(name)
     lines = [
         "---",
-        f"name: crew-{name}",
+        f"name: {out_name}",
         f'description: "{description}"',
         "kind: local",
     ]
@@ -211,10 +251,11 @@ def build_gemini(output_dir: Path):
         tools = GEMINI_AGENT_TOOLS.get(name, ["read_file", "grep_search", "list_directory"])
         frontmatter = _gemini_frontmatter(name, desc, tools)
 
+        out_name = _agent_output_name(name)
         content = frontmatter + "\n" + preamble + "\n" + body
-        dest = agents_out / f"crew-{name}.md"
+        dest = agents_out / f"{out_name}.md"
         dest.write_text(content, encoding="utf-8")
-        print(f"  + crew-{name}.md")
+        print(f"  + {out_name}.md")
         count += 1
 
     # Generate settings.json with experimental agents enabled
