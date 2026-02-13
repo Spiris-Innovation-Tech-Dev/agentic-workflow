@@ -86,6 +86,9 @@ from agentic_workflow_server.state_tools import (
     workflow_create_worktree,
     workflow_get_worktree_info,
     workflow_cleanup_worktree,
+    workflow_get_launch_command,
+    _build_resume_prompt,
+    list_tasks,
     # Helpers
     get_tasks_dir,
     DISCOVERY_CATEGORIES,
@@ -1242,6 +1245,371 @@ class TestWorktreeSupport:
 
         assert result["success"] is False
         assert "No worktree configured" in result["error"]
+
+    def test_create_worktree_returns_setup_commands(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_013")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_013")
+
+        assert "setup_commands" in result
+        assert len(result["setup_commands"]) >= 1
+        # First command is always the .tasks/ symlink
+        assert "ln -sfn" in result["setup_commands"][0]
+        assert ".tasks" in result["setup_commands"][0]
+
+    def test_create_worktree_claude_copies_settings(self, clean_tasks_dir, tmp_path):
+        """When settings file exists, claude host includes python3 patch command."""
+        workflow_initialize(task_id="TASK_TEST_WT_014")
+
+        # Create a fake settings file in cwd
+        import os
+        settings_dir = os.path.join(os.getcwd(), ".claude")
+        settings_file = os.path.join(settings_dir, "settings.local.json")
+        os.makedirs(settings_dir, exist_ok=True)
+        created_settings = False
+        try:
+            if not os.path.exists(settings_file):
+                with open(settings_file, "w") as f:
+                    f.write('{"test": true}')
+                created_settings = True
+
+            result = workflow_create_worktree(task_id="TASK_TEST_WT_014", ai_host="claude")
+
+            # Should have symlink + python3 settings patch = 2 commands
+            assert len(result["setup_commands"]) == 2
+            settings_cmd = result["setup_commands"][1]
+            assert "python3 -c" in settings_cmd
+            assert "additionalDirectories" in settings_cmd
+            assert ".tasks" in settings_cmd
+        finally:
+            if created_settings and os.path.exists(settings_file):
+                os.remove(settings_file)
+
+    def test_create_worktree_gemini_no_settings_copy(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_015")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_015", ai_host="gemini")
+
+        # Only the .tasks/ symlink, no settings copy
+        assert len(result["setup_commands"]) == 1
+        assert "ln -sfn" in result["setup_commands"][0]
+
+    def test_create_worktree_copilot_no_settings_copy(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_016")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_016", ai_host="copilot")
+
+        # Only the .tasks/ symlink, no settings copy
+        assert len(result["setup_commands"]) == 1
+        assert "ln -sfn" in result["setup_commands"][0]
+
+    def test_create_worktree_default_ai_host(self, clean_tasks_dir):
+        """Backwards compat: no ai_host param defaults to claude."""
+        workflow_initialize(task_id="TASK_TEST_WT_017")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_017")
+
+        assert result["success"] is True
+        # setup_commands should exist regardless
+        assert "setup_commands" in result
+
+
+class TestAutoLaunch:
+    """Test auto-launch terminal command generation for worktree sessions."""
+
+    def _setup_worktree_task(self, clean_tasks_dir, task_id):
+        """Helper: initialize a task and create a worktree."""
+        workflow_initialize(task_id=task_id)
+        workflow_create_worktree(task_id=task_id)
+
+    def test_tmux_launch(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_001")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_001",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        assert len(result["launch_commands"]) == 1
+        assert "tmux new-window" in result["launch_commands"][0]
+        assert "TASK_TEST_AL_001" in result["launch_commands"][0]
+        assert result["warnings"] == []
+
+    def test_windows_terminal_launch(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_002")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_002",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        assert len(result["launch_commands"]) == 1
+        cmd = result["launch_commands"][0]
+        assert "wt.exe new-tab wsl.exe --cd" in cmd
+        assert "bash -lic" in cmd
+        assert "--prompt" not in cmd
+        assert result["warnings"] == []
+
+    def test_macos_launch(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_003")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_003",
+            terminal_env="macos",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        assert len(result["launch_commands"]) == 1
+        assert "osascript" in result["launch_commands"][0]
+        assert "Terminal" in result["launch_commands"][0]
+        assert result["warnings"] == []
+
+    def test_linux_generic_returns_warning(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_004")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_004",
+            terminal_env="linux_generic",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        assert result["launch_commands"] == []
+        assert len(result["warnings"]) == 1
+        assert "Cannot reliably open" in result["warnings"][0]
+
+    def test_gemini_host(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_005")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_005",
+            terminal_env="tmux",
+            ai_host="gemini",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "gemini -i" in cmd
+        assert result["warnings"] == []
+
+    def test_copilot_host(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_006")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_006",
+            terminal_env="tmux",
+            ai_host="copilot",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "copilot" in cmd
+        assert "gh copilot" not in cmd
+        # Copilot CLI doesn't support prompt args — prompt should not be in command
+        assert result["resume_prompt"] not in cmd
+        assert any("does not support auto-sending" in w for w in result["warnings"])
+
+    def test_no_worktree_returns_error(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_AL_007")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_007",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is False
+        assert "No worktree configured" in result["error"]
+
+    def test_launch_records_metadata(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_008")
+        workflow_get_launch_command(
+            task_id="TASK_TEST_AL_008",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        # Verify metadata was saved to state
+        info = workflow_get_worktree_info(task_id="TASK_TEST_AL_008")
+        assert info["worktree"]["launch"] is not None
+        assert info["worktree"]["launch"]["terminal_env"] == "tmux"
+        assert info["worktree"]["launch"]["ai_host"] == "claude"
+        assert "launched_at" in info["worktree"]["launch"]
+
+    def test_resume_prompt_contains_task_id(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_009")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_009",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert "TASK_TEST_AL_009" in result["resume_prompt"]
+        assert "/crew resume" in result["resume_prompt"]
+
+    def test_cleaned_worktree_returns_error(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_010")
+        workflow_cleanup_worktree(task_id="TASK_TEST_AL_010")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_010",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is False
+        assert "not active" in result["error"]
+
+    def test_nonexistent_task_returns_error(self, clean_tasks_dir):
+        result = workflow_get_launch_command(
+            task_id="TASK_NONEXISTENT",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    def test_resume_prompt_claude_slash_syntax(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_011")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_011",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert "/crew resume TASK_TEST_AL_011" in result["resume_prompt"]
+        assert "@crew-resume" not in result["resume_prompt"]
+
+    def test_resume_prompt_gemini_at_syntax(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_012")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_012",
+            terminal_env="tmux",
+            ai_host="gemini",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert "@crew-resume TASK_TEST_AL_012" in result["resume_prompt"]
+        assert "/crew resume" not in result["resume_prompt"]
+
+    def test_resume_prompt_copilot_at_syntax(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_013")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_013",
+            terminal_env="tmux",
+            ai_host="copilot",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert "@crew-resume TASK_TEST_AL_013" in result["resume_prompt"]
+        assert "/crew resume" not in result["resume_prompt"]
+
+
+class TestBuildResumePrompt:
+    """Unit tests for _build_resume_prompt helper."""
+
+    def test_claude_uses_slash_syntax(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "claude")
+        assert "/crew resume TASK_001" in prompt
+
+    def test_gemini_uses_at_syntax(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "gemini")
+        assert "@crew-resume TASK_001" in prompt
+
+    def test_copilot_uses_at_syntax(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "copilot")
+        assert "@crew-resume TASK_001" in prompt
+
+    def test_default_host_is_claude(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001")
+        assert "/crew resume TASK_001" in prompt
+
+    def test_warns_against_creating_tasks_dir(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "claude")
+        assert "DO NOT create" in prompt
+        assert ".tasks/" in prompt
+
+    def test_includes_absolute_path(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "claude")
+        assert "/repo/.tasks/TASK_001" in prompt
+        assert "absolute path" in prompt
+
+
+class TestListTasksWorktree:
+    """Test list_tasks() includes worktree metadata."""
+
+    def test_list_tasks_without_worktree(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_LT_001")
+        tasks = list_tasks()
+        task = next(t for t in tasks if t["task_id"] == "TASK_TEST_LT_001")
+
+        assert task["worktree"] is None
+
+    def test_list_tasks_with_active_worktree(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_LT_002")
+        workflow_create_worktree(task_id="TASK_TEST_LT_002")
+        tasks = list_tasks()
+        task = next(t for t in tasks if t["task_id"] == "TASK_TEST_LT_002")
+
+        assert task["worktree"] is not None
+        assert task["worktree"]["status"] == "active"
+        assert task["worktree"]["branch"] is not None
+        assert task["worktree"]["path"] is not None
+        assert task["worktree"]["action"] == "resume"
+
+    def test_list_tasks_complete_with_active_worktree_suggests_cleanup(self, clean_tasks_dir):
+        """Completed task with active worktree should suggest cleanup."""
+        workflow_initialize(task_id="TASK_TEST_LT_003")
+        workflow_create_worktree(task_id="TASK_TEST_LT_003")
+
+        # Complete all required phases to mark as complete
+        for phase in PHASE_ORDER:
+            workflow_transition(to_phase=phase, task_id="TASK_TEST_LT_003")
+            workflow_complete_phase(task_id="TASK_TEST_LT_003")
+
+        tasks = list_tasks()
+        task = next(t for t in tasks if t["task_id"] == "TASK_TEST_LT_003")
+
+        assert task["is_complete"] is True
+        assert task["worktree"]["status"] == "active"
+        assert task["worktree"]["action"] == "cleanup"
+
+    def test_list_tasks_cleaned_worktree_shows_done(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_LT_004")
+        workflow_create_worktree(task_id="TASK_TEST_LT_004")
+        workflow_cleanup_worktree(task_id="TASK_TEST_LT_004")
+        tasks = list_tasks()
+        task = next(t for t in tasks if t["task_id"] == "TASK_TEST_LT_004")
+
+        assert task["worktree"]["status"] == "cleaned"
+        assert task["worktree"]["action"] == "done"
+
+    def test_list_tasks_multiple_with_mixed_worktree_states(self, clean_tasks_dir):
+        """Multiple tasks with different worktree states."""
+        # Task with no worktree
+        workflow_initialize(task_id="TASK_TEST_LT_005")
+
+        # Task with active worktree
+        workflow_initialize(task_id="TASK_TEST_LT_006")
+        workflow_create_worktree(task_id="TASK_TEST_LT_006")
+
+        # Task with cleaned worktree
+        workflow_initialize(task_id="TASK_TEST_LT_007")
+        workflow_create_worktree(task_id="TASK_TEST_LT_007")
+        workflow_cleanup_worktree(task_id="TASK_TEST_LT_007")
+
+        tasks = list_tasks()
+        lt_tasks = {t["task_id"]: t for t in tasks if t["task_id"].startswith("TASK_TEST_LT_00")}
+
+        assert lt_tasks["TASK_TEST_LT_005"]["worktree"] is None
+        assert lt_tasks["TASK_TEST_LT_006"]["worktree"]["status"] == "active"
+        assert lt_tasks["TASK_TEST_LT_007"]["worktree"]["status"] == "cleaned"
 
 
 if __name__ == "__main__":

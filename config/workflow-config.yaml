@@ -635,3 +635,6 @@ worktree:
   base_path: "../{repo_name}-worktrees"
   branch_prefix: "crew/"
   cleanup_on_complete: prompt  # prompt | auto | never
+  auto_launch: prompt          # prompt | auto | never
+  ai_host: auto                # auto | claude | gemini | copilot
+  copy_settings: true            # Copy host CLI settings (e.g., .claude/settings.local.json) to worktree

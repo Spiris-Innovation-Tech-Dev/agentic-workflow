@@ -39,6 +39,7 @@ AGENT_DESCRIPTIONS = {
     "accessibility-reviewer": "Accessibility Reviewer — ensures WCAG compliance",
     "orchestrator": "Workflow Orchestrator — coordinates the multi-agent workflow",
     "crew-worktree": "Worktree Creator — creates isolated git worktrees for parallel crew workflows",
+    "crew-status": "Workflow Status — read-only overview of all tasks, worktrees, and model health",
 }
 
 # Agents that are invoked as commands rather than sub-agents.
@@ -46,6 +47,7 @@ AGENT_DESCRIPTIONS = {
 # For Copilot/Gemini: generates as regular agents with full tool access
 COMMAND_AGENTS = {
     "crew-worktree",
+    "crew-status",
 }
 
 # Gemini sub-agent tool restrictions per agent role
@@ -62,6 +64,7 @@ GEMINI_AGENT_TOOLS = {
     "api-guardian":          ["read_file", "search_file_content", "list_directory"],
     "accessibility-reviewer": ["read_file", "search_file_content", "list_directory"],
     "crew-worktree":          ["read_file", "write_file", "list_directory", "run_shell_command"],
+    "crew-status":            ["read_file", "list_directory", "run_shell_command"],
 }
 
 
@@ -81,6 +84,7 @@ def list_agents() -> list[Path]:
 # Claude command wrappers: appended to command agent content for $ARGS substitution
 COMMAND_SUFFIXES = {
     "crew-worktree": "\nNow, process the arguments and create the worktree:\n\nArguments: $ARGS\n",
+    "crew-status": "\nNow, scan `.tasks/` directory and **display** (read-only) the status of all workflows with worktree state, context, and model health. Do NOT transition, complete, or advance any workflow. ONLY read and print.\n",
 }
 
 
@@ -281,8 +285,8 @@ def build_gemini(output_dir: Path):
 PLATFORMS = {
     "claude": {
         "build": build_claude,
-        "default_output": lambda: Path.home(),
-        "description": "Claude Code — plain .md agents in ~/agents/",
+        "default_output": lambda: Path.home() / ".claude",
+        "description": "Claude Code — plain .md agents in ~/.claude/agents/",
     },
     "copilot": {
         "build": build_copilot,

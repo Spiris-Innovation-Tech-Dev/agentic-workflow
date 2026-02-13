@@ -333,7 +333,7 @@ Create an isolated git worktree for a task, then stop. Available on all platform
 @crew-worktree "Add user profiles"
 ```
 
-Creates a worktree branch (`crew/task-xxx`) and working directory, prints the path, and stops. Open a terminal in the worktree directory and run `/crew resume TASK_XXX` to start the workflow there. This keeps parallel tasks isolated from each other.
+Creates a worktree branch (`crew/task-xxx`) and working directory. Depending on the `worktree.auto_launch` config (`prompt` by default), it will offer to open a new terminal tab in the worktree with the AI CLI already running. If declined or set to `never`, it prints manual instructions instead. Run `/crew resume TASK_XXX` in the worktree to start the workflow. This keeps parallel tasks isolated from each other.
 
 WSL/Windows note: the worktree's `.git` paths are automatically converted to relative paths so both WSL and Windows tools (Visual Studio, PowerShell git) can read the worktree.
 
@@ -619,9 +619,69 @@ worktree:
   base_path: "../{repo_name}-worktrees"
   branch_prefix: "crew/"
   cleanup_on_complete: prompt  # prompt | auto | never
+  auto_launch: prompt          # prompt | auto | never
+  ai_host: auto                # auto | claude | gemini | copilot
 ```
 
 When `--worktree` is passed, the orchestrator creates an isolated git worktree for the task. Each worktree gets its own branch (`crew/task-xxx`) and working directory, allowing multiple `/crew` sessions to run in parallel without file conflicts. The `.tasks/` directory is shared — worktree agents resolve back to the main repo's `.tasks/` via `git rev-parse --git-common-dir`.
+
+**Auto-launch** controls whether the agent opens a new terminal in the worktree after creation:
+
+| Setting | Behavior |
+|---------|----------|
+| `prompt` (default) | Ask "Launch a new terminal session in the worktree?" before opening |
+| `auto` | Detect terminal and launch immediately without asking |
+| `never` | Print manual instructions only (original behavior) |
+
+The agent auto-detects the terminal environment (`$TMUX`, `wt.exe`, macOS Terminal) and generates the appropriate launch command. The `ai_host` setting controls which CLI is started in the new terminal — set to `auto` to use the platform default (`claude`), or explicitly set `claude`, `gemini`, or `copilot`.
+
+**Host CLI differences:**
+
+| | Claude | Gemini | Copilot |
+|---|---|---|---|
+| **Start CLI** | `claude` | `gemini` | `copilot` |
+| **Invoke crew** | `/crew "task"` | `@crew "task"` | `@crew "task"` |
+| **Resume in worktree** | `/crew resume TASK_XXX` | `@crew-resume TASK_XXX` | `@crew-resume TASK_XXX` |
+| **Auto-launch prompt** | Sent automatically | Sent automatically (`-i` flag) | Manual paste required |
+
+> **Note:** Copilot CLI doesn't accept prompt arguments. Auto-launch opens the terminal, but you must paste the resume prompt yourself.
+
+**Worktree auto-setup**: The agent automatically prepares each worktree for immediate use:
+- Symlinks `.tasks/` to the main repo so agents can read task state directly
+- Copies `.claude/settings.local.json` (Claude only) so tool permissions are pre-approved
+- Gemini and Copilot use global settings — no copy needed
+
+Set `copy_settings: false` in the `worktree` config to disable settings copying (the `.tasks/` symlink is always created).
+
+**Example flow:**
+
+```bash
+# 1. Create the worktree (from your main repo)
+/crew-worktree "Add user profiles"
+
+# 2. Agent creates the worktree, then asks:
+#    "Launch a new terminal session in the worktree? (yes/no)"
+#
+#    If yes (or auto_launch: auto):
+#    - Detects terminal (tmux, Windows Terminal, macOS Terminal)
+#    - Opens a new tab/window in the worktree directory
+#    - Starts the AI CLI with the resume prompt pre-loaded
+#
+#    If no (or auto_launch: never):
+#    - Prints manual instructions:
+#      cd ../myrepo-worktrees/TASK_042
+#      claude                     # or: gemini / copilot
+#      /crew resume TASK_042      # or: @crew-resume TASK_042
+```
+
+Supported terminals:
+
+| Terminal | How it launches |
+|----------|----------------|
+| **tmux** | `tmux new-window` in worktree directory with CLI running |
+| **Windows Terminal** | `wt.exe new-tab` with bash running the CLI |
+| **macOS Terminal** | `osascript` opens a new Terminal window |
+| **Linux (other)** | Falls back to manual instructions (no reliable generic method) |
 
 #### Agent Teams (Experimental)
 
@@ -740,6 +800,7 @@ Agents can save discoveries to persistent memory that survives context compactio
 | `workflow_create_worktree` | Record worktree metadata and get git commands |
 | `workflow_get_worktree_info` | Check worktree status for a task |
 | `workflow_cleanup_worktree` | Mark worktree cleaned and get cleanup commands |
+| `workflow_get_launch_command` | Generate terminal launch commands for a worktree session |
 
 **Discovery Categories:**
 
@@ -884,7 +945,7 @@ All uninstallers preserve task state in `.tasks/`.
 | Feature | Claude Code | Copilot CLI | Gemini CLI |
 |---------|:-----------:|:-----------:|:----------:|
 | **Agents** | All 12 | All 12 | All 12 |
-| **MCP Tools** | 55 tools | 55 tools | 55 tools |
+| **MCP Tools** | 56 tools | 56 tools | 56 tools |
 | **State Management** | `.tasks/` | `.tasks/` | `.tasks/` |
 | **Config Cascade** | Global → Project → Task | Global → Project → Task | Global → Project → Task |
 | **Workflow Modes** | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto |
@@ -931,7 +992,7 @@ All uninstallers preserve task state in `.tasks/`.
 | Component | Path | Description |
 |-----------|------|-------------|
 | Agent prompts | `agents/*.md` | Source of truth for all agent and command behavior |
-| MCP server | `mcp/agentic-workflow-server/` | 55 workflow management tools |
+| MCP server | `mcp/agentic-workflow-server/` | 56 workflow management tools |
 | Task state | `.tasks/TASK_XXX/` | Phase tracking, discoveries, progress |
 | Config | `workflow-config.yaml` | Checkpoints, models, modes, limits |
 | Build script | `scripts/build-agents.py` | Transforms agents for each platform |

@@ -97,4 +97,9 @@ MCP tools (record metadata, return git commands — do not execute git directly)
 
 The worktree branches from the current branch and `.tasks/` resolves back to the main repo via `git rev-parse --git-common-dir`.
 
+**Important behaviors:**
+- **LF enforcement**: The `.git` pointer file and `gitdir` file are written with `printf` to guarantee LF line endings (CRLF breaks git on Windows/WSL).
+- **Dependency installation**: After creating the worktree, the agent auto-detects lock files (`package-lock.json`, `yarn.lock`, `requirements.txt`, etc.) and installs dependencies so the worktree is ready to use.
+- **Task state path**: The final output includes the absolute path to `.tasks/TASK_XXX/` in the main repo and a prompt template that tells the new AI session where state lives. MCP tools resolve this automatically, but direct file reads should use the absolute path.
+
 See the MCP server source at `mcp/agentic-workflow-server/` for full API documentation.

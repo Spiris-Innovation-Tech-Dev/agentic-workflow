@@ -61,6 +61,13 @@ DEFAULT_CONFIG = {
         "feedback": "opus",
         "technical-writer": "opus"
     },
+    "worktree": {
+        "base_path": "../{repo_name}-worktrees",
+        "branch_prefix": "crew/",
+        "cleanup_on_complete": "prompt",
+        "auto_launch": "prompt",
+        "ai_host": "auto",
+    },
     "auto_actions": {
         "run_tests": True,
         "create_files": True,

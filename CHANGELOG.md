@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-13
+
+### Added
+- **Worktree DX auto-setup** — `workflow_create_worktree()` returns `setup_commands` that symlink `.tasks/` and copy host settings with `additionalDirectories` patched in, granting the worktree session read/write access to the parent repo's `.tasks/`
+- **Cross-platform `/crew-status`** — moved from Claude-only `commands/` to `agents/crew-status.md`, now available on Claude (`/crew-status`), Copilot (`@crew-status`), and Gemini (`@crew-status`)
+- **Worktree-aware task summary** — `list_tasks()` includes worktree metadata (status, path, branch, action); `/crew-status` shows worktree columns, cleanup candidates, orphan detection via `git worktree list`
+- **Host-aware resume prompt** — `_build_resume_prompt()` uses `/crew resume` for Claude, `@crew-resume` for Gemini/Copilot
+- `ai_host` parameter on `workflow_create_worktree` MCP tool — determines which settings to copy
+- `copy_settings` config option in `worktree:` section — disable settings copy while keeping `.tasks/` symlink
+- `_HOST_SETTINGS` constant maps hosts to settings files (Claude: `.claude/settings.local.json`, Gemini/Copilot: none)
+- `_SETTINGS_PATCH_SCRIPT` — Python script embedded in setup_commands that copies settings and injects `additionalDirectories`
+- 24 new tests: setup_commands, host-aware resume, list_tasks worktree, resume prompt content
+
+### Fixed
+- **Worktree-aware active task detection** — `_find_active_task_dir()` (MCP server) and `find_active_task()` (hooks) now detect which worktree they're in and return only the task that owns it, preventing cross-task interference when multiple worktrees are active
+- **`/crew-status` read-only enforcement** — added explicit READ-ONLY guard, allowed/forbidden tool lists, preventing the agent from accidentally advancing workflows when displaying status
+
+### Changed
+- Resume prompt now explicitly warns: "DO NOT create a new .tasks/ directory" and directs to use absolute path
+- `crew-worktree.md` renumbered to 13 steps (new step 5: resolve AI host, step 8: run setup_commands)
+- MCP tool count: 55 → 55 (ai_host added to existing tool schema)
+
 ## [0.3.1] - 2026-02-10
 
 ### Added

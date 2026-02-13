@@ -89,6 +89,7 @@ from .state_tools import (
     workflow_create_worktree,
     workflow_get_worktree_info,
     workflow_cleanup_worktree,
+    workflow_get_launch_command,
 )
 from .config_tools import (
     config_get_effective,
@@ -1188,6 +1189,12 @@ TOOLS = [
                     "type": "string",
                     "description": "Branch to base the worktree on (default: main)",
                     "default": "main"
+                },
+                "ai_host": {
+                    "type": "string",
+                    "description": "AI host CLI (determines which settings to copy). Default: claude.",
+                    "enum": ["claude", "gemini", "copilot"],
+                    "default": "claude"
                 }
             },
             "required": []
@@ -1221,6 +1228,36 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Whether to include branch deletion in cleanup commands (default: true)",
                     "default": True
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="workflow_get_launch_command",
+        description="Generate platform-specific commands to launch a new terminal session in a worktree directory with the AI CLI and resume prompt.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                },
+                "terminal_env": {
+                    "type": "string",
+                    "description": "Terminal environment",
+                    "enum": ["tmux", "windows_terminal", "macos", "linux_generic"],
+                    "default": "unknown"
+                },
+                "ai_host": {
+                    "type": "string",
+                    "description": "AI host CLI to launch",
+                    "enum": ["claude", "gemini", "copilot"],
+                    "default": "claude"
+                },
+                "main_repo_path": {
+                    "type": "string",
+                    "description": "Absolute path to the main repository (for resolving relative worktree paths)"
                 }
             },
             "required": []
@@ -1291,6 +1328,7 @@ TOOL_DISPATCH_TABLE = {
     "workflow_create_worktree": workflow_create_worktree,
     "workflow_get_worktree_info": workflow_get_worktree_info,
     "workflow_cleanup_worktree": workflow_cleanup_worktree,
+    "workflow_get_launch_command": workflow_get_launch_command,
 }
 
 

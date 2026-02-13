@@ -379,12 +379,82 @@ def is_complete(task_dir: str) -> tuple[bool, Optional[str]]:
     return state.is_complete()
 
 
+def _resolve_tasks_dir() -> Path:
+    """Resolve .tasks/ to the main repo when running in a git worktree."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            git_common_dir = Path(result.stdout.strip())
+            if git_common_dir.is_absolute():
+                # Worktree: resolve to main repo
+                return git_common_dir.parent / ".tasks"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return Path(".tasks")
+
+
+def _detect_worktree_task_id(tasks_dir: Path) -> Optional[str]:
+    """If running inside a git worktree, find the task ID that owns it."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            return None  # Normal repo, not a worktree
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+    cwd = str(Path.cwd().resolve())
+    main_repo = git_common_dir.parent
+
+    for task_dir in tasks_dir.iterdir():
+        if task_dir.is_dir():
+            state_file = task_dir / "state.json"
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        state = json.load(f)
+                    wt = state.get("worktree")
+                    if wt and wt.get("status") == "active" and wt.get("path"):
+                        import os
+                        wt_abs = str(Path(os.path.normpath(
+                            os.path.join(str(main_repo), wt["path"])
+                        )).resolve())
+                        if wt_abs == cwd:
+                            return task_dir.name
+                except (json.JSONDecodeError, OSError):
+                    continue
+    return None
+
+
 def find_active_task() -> Optional[str]:
-    """Find the currently active task directory."""
-    tasks_dir = Path(".tasks")
+    """Find the currently active task directory.
+
+    In a worktree, returns only the task that owns this worktree.
+    In a normal repo, returns the most recently updated incomplete task.
+    """
+    tasks_dir = _resolve_tasks_dir()
     if not tasks_dir.exists():
         return None
 
+    # In a worktree, only the task that owns this worktree is "active"
+    wt_task_id = _detect_worktree_task_id(tasks_dir)
+    if wt_task_id:
+        task_dir = tasks_dir / wt_task_id
+        if task_dir.exists():
+            return str(task_dir)
+        return None
+
+    # Normal repo: find the most recently updated incomplete task
     active_tasks = []
     for task_dir in tasks_dir.iterdir():
         if task_dir.is_dir():

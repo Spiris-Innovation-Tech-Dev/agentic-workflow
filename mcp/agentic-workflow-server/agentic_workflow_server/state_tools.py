@@ -10,6 +10,7 @@ to ensure data integrity during concurrent access.
 import json
 import os
 import re
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -97,11 +98,67 @@ def find_task_dir(task_id: Optional[str] = None) -> Optional[Path]:
     return _find_active_task_dir()
 
 
+def _detect_worktree_task_id() -> Optional[str]:
+    """If running inside a git worktree, find the task ID that owns it.
+
+    Checks each task's worktree metadata to see if its path matches cwd.
+    Returns the task_id if found, None if not in a worktree or no match.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            # Not a worktree (normal repo)
+            return None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+    # We're in a worktree. Match cwd against task worktree paths.
+    cwd = str(Path.cwd().resolve())
+    tasks_dir = get_tasks_dir()
+    if not tasks_dir.exists():
+        return None
+
+    for task_dir in tasks_dir.iterdir():
+        if task_dir.is_dir():
+            state_file = task_dir / "state.json"
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        state = json.load(f)
+                    wt = state.get("worktree")
+                    if wt and wt.get("status") == "active" and wt.get("path"):
+                        # Resolve the worktree path relative to the main repo
+                        main_repo = git_common_dir.parent
+                        wt_abs = str(Path(os.path.normpath(
+                            os.path.join(str(main_repo), wt["path"])
+                        )).resolve())
+                        if wt_abs == cwd:
+                            return task_dir.name
+                except (json.JSONDecodeError, OSError):
+                    continue
+    return None
+
+
 def _find_active_task_dir() -> Optional[Path]:
     tasks_dir = get_tasks_dir()
     if not tasks_dir.exists():
         return None
 
+    # In a worktree, only the task that owns this worktree is "active"
+    wt_task_id = _detect_worktree_task_id()
+    if wt_task_id:
+        task_dir = tasks_dir / wt_task_id
+        if task_dir.exists():
+            return task_dir
+        return None
+
+    # Normal repo: find the most recently updated incomplete task
     active_tasks = []
     for task_dir in tasks_dir.iterdir():
         if task_dir.is_dir():
@@ -560,14 +617,41 @@ def list_tasks() -> list[dict[str, Any]]:
                 if state.get("phase"):
                     completed.add(_normalize_phase(state["phase"]))
                 missing = [p for p in REQUIRED_PHASES if p not in completed]
+                is_complete = len(missing) == 0
 
-                tasks.append({
+                # Worktree metadata
+                worktree = state.get("worktree")
+                wt_status = None
+                wt_path = None
+                wt_branch = None
+                wt_action = None
+
+                if worktree:
+                    wt_status = worktree.get("status")
+                    wt_path = worktree.get("path")
+                    wt_branch = worktree.get("branch")
+
+                    if wt_status == "active" and is_complete:
+                        wt_action = "cleanup"
+                    elif wt_status == "active" and not is_complete:
+                        wt_action = "resume"
+                    elif wt_status == "cleaned":
+                        wt_action = "done"
+
+                task_entry = {
                     "task_id": task_dir.name,
                     "phase": state.get("phase"),
                     "iteration": state.get("iteration", 1),
-                    "is_complete": len(missing) == 0,
-                    "updated_at": state.get("updated_at")
-                })
+                    "is_complete": is_complete,
+                    "updated_at": state.get("updated_at"),
+                    "worktree": {
+                        "status": wt_status,
+                        "path": wt_path,
+                        "branch": wt_branch,
+                        "action": wt_action,
+                    } if worktree else None,
+                }
+                tasks.append(task_entry)
 
     return tasks
 
@@ -3153,7 +3237,8 @@ def workflow_get_optional_phases(
 def workflow_create_worktree(
     task_id: Optional[str] = None,
     base_path: Optional[str] = None,
-    base_branch: str = "main"
+    base_branch: str = "main",
+    ai_host: str = "claude"
 ) -> dict[str, Any]:
     """Record worktree metadata in state and return git commands for the orchestrator.
 
@@ -3164,9 +3249,10 @@ def workflow_create_worktree(
         task_id: Task identifier. If not provided, uses active task.
         base_path: Directory for worktrees. Defaults to ../REPO-worktrees/.
         base_branch: Branch to base the worktree on.
+        ai_host: AI host CLI (determines which settings to copy). Default: claude.
 
     Returns:
-        Worktree metadata and git commands to execute.
+        Worktree metadata, git commands, and setup commands to execute.
     """
     task_dir = find_task_dir(task_id)
     if not task_dir:
@@ -3204,6 +3290,26 @@ def workflow_create_worktree(
     state["worktree"] = worktree_metadata
     _save_state(task_dir, state)
 
+    # Build setup commands (symlink .tasks/ + copy host settings)
+    main_repo_abs = str(Path.cwd().resolve())
+    worktree_abs = os.path.normpath(os.path.join(main_repo_abs, worktree_path))
+
+    setup_commands = [
+        f"ln -sfn {shlex.quote(os.path.join(main_repo_abs, '.tasks'))} {shlex.quote(os.path.join(worktree_abs, '.tasks'))}"
+    ]
+
+    main_tasks_abs = os.path.join(main_repo_abs, ".tasks")
+
+    for settings_file in _HOST_SETTINGS.get(ai_host, []):
+        src = os.path.join(main_repo_abs, settings_file)
+        dest = os.path.join(worktree_abs, settings_file)
+        # Copy settings and inject additionalDirectories so the AI host
+        # can read/write .tasks/ in the parent repo without symlink issues.
+        setup_commands.append(
+            f"python3 -c {shlex.quote(_SETTINGS_PATCH_SCRIPT)} "
+            f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
+        )
+
     return {
         "success": True,
         "task_id": resolved_task_id,
@@ -3211,7 +3317,8 @@ def workflow_create_worktree(
         "git_commands": [
             f"git worktree add -b {branch_name} {worktree_path} {base_branch}"
         ],
-        "message": f"Run the git commands above, then work in {worktree_path}"
+        "setup_commands": setup_commands,
+        "message": f"Run the git commands above, then the setup commands, then work in {worktree_path}"
     }
 
 
@@ -3296,4 +3403,188 @@ def workflow_cleanup_worktree(
         "worktree": state["worktree"],
         "git_commands": git_commands,
         "message": f"Worktree marked as cleaned. Run the git commands above to finalize."
+    }
+
+
+# Map ai_host to CLI command
+_AI_HOST_CLI = {
+    "claude": "claude",
+    "gemini": "gemini",
+    "copilot": "copilot",
+}
+
+# Host-specific settings files to copy into worktrees
+_HOST_SETTINGS = {
+    "claude": [".claude/settings.local.json"],
+    "gemini": [],
+    "copilot": [],
+}
+
+# Python script to copy settings and add additionalDirectories for parent .tasks/ access.
+# Args: src_settings_path dest_settings_path parent_tasks_dir
+_SETTINGS_PATCH_SCRIPT = """
+import json, os, sys
+src, dst, tasks_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+d = {}
+if os.path.isfile(src):
+    with open(src) as f:
+        d = json.load(f)
+dirs = d.setdefault("additionalDirectories", [])
+if tasks_dir not in dirs:
+    dirs.append(tasks_dir)
+with open(dst, "w") as f:
+    json.dump(d, f, indent=2)
+    f.write("\\n")
+"""
+
+
+def _build_resume_prompt(task_id: str, main_tasks_path: str, ai_host: str = "claude") -> str:
+    """Build the resume prompt string for a worktree session."""
+    if ai_host in ("gemini", "copilot"):
+        resume_cmd = f"@crew-resume {task_id}"
+    else:
+        resume_cmd = f"/crew resume {task_id}"
+    return (
+        f"Resume crew workflow {task_id}. "
+        f"This is a git worktree — DO NOT create a new .tasks/ directory here. "
+        f"The task state lives in the main repo at: {main_tasks_path} "
+        f"Read and write all task state using that absolute path. "
+        f"A .tasks/ symlink exists in this worktree for convenience, but always "
+        f"prefer the absolute path above for reliability. "
+        f"{resume_cmd}"
+    )
+
+
+def workflow_get_launch_command(
+    task_id: Optional[str] = None,
+    terminal_env: str = "unknown",
+    ai_host: str = "claude",
+    main_repo_path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Generate platform-specific commands to launch a terminal in the worktree.
+
+    Args:
+        task_id: Task identifier. If not provided, uses active task.
+        terminal_env: Terminal environment (tmux, windows_terminal, macos, linux_generic).
+        ai_host: AI host to use (claude, gemini, copilot).
+        main_repo_path: Absolute path to the main repository. Used to resolve
+            the worktree absolute path.
+
+    Returns:
+        Launch commands, resume prompt, and metadata.
+    """
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    state = _load_state(task_dir)
+    resolved_task_id = state.get("task_id", task_dir.name)
+
+    worktree = state.get("worktree")
+    if not worktree:
+        return {
+            "success": False,
+            "error": f"No worktree configured for {resolved_task_id}"
+        }
+
+    if worktree.get("status") != "active":
+        return {
+            "success": False,
+            "error": f"Worktree is not active for {resolved_task_id} (status: {worktree.get('status')})"
+        }
+
+    # Resolve worktree absolute path
+    worktree_rel_path = worktree["path"]
+    if main_repo_path and not os.path.isabs(worktree_rel_path):
+        worktree_abs_path = os.path.normpath(
+            os.path.join(main_repo_path, worktree_rel_path)
+        )
+    else:
+        worktree_abs_path = worktree_rel_path
+
+    # Build resume prompt
+    main_tasks_path = os.path.join(
+        main_repo_path or ".", ".tasks", resolved_task_id
+    )
+    resume_prompt = _build_resume_prompt(resolved_task_id, main_tasks_path, ai_host)
+
+    # Resolve CLI command
+    cli = _AI_HOST_CLI.get(ai_host, "claude")
+
+    warnings = []
+    launch_commands = []
+
+    safe_path = shlex.quote(worktree_abs_path)
+    safe_prompt = shlex.quote(resume_prompt)
+    safe_task_id = shlex.quote(resolved_task_id)
+
+    # Build the CLI invocation per host
+    if ai_host == "copilot":
+        # Copilot CLI doesn't accept prompt args — launch interactive only
+        cli_with_prompt = cli
+        warnings.append(
+            "Copilot CLI does not support auto-sending prompts. "
+            "After the terminal opens, paste the resume prompt manually."
+        )
+    elif ai_host == "gemini":
+        # gemini -i "prompt" executes prompt then stays interactive
+        cli_with_prompt = f"{cli} -i {safe_prompt}"
+    else:
+        # claude "prompt" starts interactive with the prompt as the first message
+        cli_with_prompt = f"{cli} {safe_prompt}"
+
+    if terminal_env == "tmux":
+        # tmux: open new window, cd to worktree, run CLI with prompt
+        tmux_cmd = (
+            f"tmux new-window -n {safe_task_id} -c {safe_path} "
+            f"{shlex.quote(cli_with_prompt)}"
+        )
+        launch_commands.append(tmux_cmd)
+
+    elif terminal_env == "windows_terminal":
+        # Windows Terminal from WSL: run wsl.exe as the tab process so WT
+        # opens a WSL session. Use --cd for the working directory.
+        # bash -lic: -l (login, sources .profile) + -i (interactive, sources
+        # .bashrc where nvm/fnm/volta add CLI tools to PATH) + -c (command).
+        wt_cmd = (
+            f"wt.exe new-tab wsl.exe --cd {safe_path} "
+            f"-- bash -lic {shlex.quote(cli_with_prompt)}"
+        )
+        launch_commands.append(wt_cmd)
+
+    elif terminal_env == "macos":
+        # macOS Terminal: use osascript to open new Terminal window
+        inner_script = f"cd {safe_path} && {cli_with_prompt}"
+        osa_cmd = (
+            f'osascript -e \'tell app "Terminal" to do script {shlex.quote(inner_script)}\''
+        )
+        launch_commands.append(osa_cmd)
+
+    else:
+        # linux_generic or unknown: cannot reliably open a new terminal
+        warnings.append(
+            "Cannot reliably open a new terminal on this platform. "
+            "Please open a terminal manually, navigate to the worktree, and run the resume prompt."
+        )
+
+    # Record launch metadata in state
+    state["worktree"]["launch"] = {
+        "terminal_env": terminal_env,
+        "ai_host": ai_host,
+        "launched_at": datetime.now().isoformat(),
+        "worktree_abs_path": worktree_abs_path,
+    }
+    _save_state(task_dir, state)
+
+    return {
+        "success": True,
+        "task_id": resolved_task_id,
+        "launch_commands": launch_commands,
+        "resume_prompt": resume_prompt,
+        "worktree_path": worktree_abs_path,
+        "warnings": warnings,
     }

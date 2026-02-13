@@ -64,13 +64,12 @@ echo "Installing commands..."
 cp "$SCRIPT_DIR/commands/"*.md "$CLAUDE_DIR/commands/"
 echo "  ✓ crew.md"
 echo "  ✓ crew-config.md"
-echo "  ✓ crew-status.md"
 echo "  ✓ crew-resume.md"
 
 # Build agents using multi-platform build script
 echo ""
 echo "Installing agents..."
-python3 "$SCRIPT_DIR/scripts/build-agents.py" claude --output "$HOME" || {
+python3 "$SCRIPT_DIR/scripts/build-agents.py" claude --output "$HOME/.claude" || {
   echo "  ✗ Failed to build agents"
   exit 1
 }

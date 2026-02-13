@@ -5,4 +5,4 @@ Provides MCP tools and resources for managing workflow state, configuration,
 and validation in the agentic-workflow system.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
