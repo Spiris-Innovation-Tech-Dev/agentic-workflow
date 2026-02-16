@@ -89,6 +89,7 @@ from agentic_workflow_server.state_tools import (
     workflow_get_launch_command,
     _build_resume_prompt,
     _find_recyclable_worktree,
+    _is_wsl,
     list_tasks,
     # Helpers
     get_tasks_dir,
@@ -1206,35 +1207,44 @@ class TestWorktreeSupport:
         assert result["has_worktree"] is False
         assert result["worktree"] is None
 
-    def test_cleanup_marks_state_as_cleaned(self, clean_tasks_dir):
+    def test_cleanup_returns_script_command(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_WT_008")
         workflow_create_worktree(task_id="TASK_TEST_WT_008")
         result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_008")
 
         assert result["success"] is True
-        assert result["worktree"]["status"] == "cleaned"
-        assert "cleaned_at" in result["worktree"]
+        assert "cleanup_command" in result
+        assert "cleanup-worktree.py" in result["cleanup_command"]
+        assert "TASK_TEST_WT_008" in result["cleanup_command"]
+        # Worktree state is NOT modified (validate-only)
+        assert result["worktree"]["status"] == "active"
 
     def test_cleanup_with_branch_removal(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_WT_009")
         workflow_create_worktree(task_id="TASK_TEST_WT_009")
         result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_009", remove_branch=True)
 
-        assert len(result["git_commands"]) == 2
-        assert "git branch -d" in result["git_commands"][1]
+        assert "--remove-branch" in result["cleanup_command"]
 
     def test_cleanup_without_branch_removal(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_WT_010")
         workflow_create_worktree(task_id="TASK_TEST_WT_010")
         result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_010", remove_branch=False)
 
-        assert len(result["git_commands"]) == 1
-        assert "git worktree remove" in result["git_commands"][0]
+        assert "--remove-branch" not in result["cleanup_command"]
 
     def test_cleanup_rejects_already_cleaned(self, clean_tasks_dir):
+        """Manually mark as cleaned, then verify MCP rejects re-cleanup."""
         workflow_initialize(task_id="TASK_TEST_WT_011")
         workflow_create_worktree(task_id="TASK_TEST_WT_011")
-        workflow_cleanup_worktree(task_id="TASK_TEST_WT_011")
+        # Simulate the cleanup script having run (it updates state)
+        state_file = clean_tasks_dir / "TASK_TEST_WT_011" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "cleaned"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
         result = workflow_cleanup_worktree(task_id="TASK_TEST_WT_011")
 
         assert result["success"] is False
@@ -1460,7 +1470,14 @@ class TestAutoLaunch:
 
     def test_cleaned_worktree_returns_error(self, clean_tasks_dir):
         self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_010")
-        workflow_cleanup_worktree(task_id="TASK_TEST_AL_010")
+        # Simulate cleanup script having run
+        state_file = clean_tasks_dir / "TASK_TEST_AL_010" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "cleaned"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
         result = workflow_get_launch_command(
             task_id="TASK_TEST_AL_010",
             terminal_env="tmux",
@@ -1591,7 +1608,14 @@ class TestListTasksWorktree:
     def test_list_tasks_cleaned_worktree_shows_done(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_LT_004")
         workflow_create_worktree(task_id="TASK_TEST_LT_004")
-        workflow_cleanup_worktree(task_id="TASK_TEST_LT_004")
+        # Simulate cleanup script having run
+        state_file = clean_tasks_dir / "TASK_TEST_LT_004" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "cleaned"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
         tasks = list_tasks()
         task = next(t for t in tasks if t["task_id"] == "TASK_TEST_LT_004")
 
@@ -1610,7 +1634,13 @@ class TestListTasksWorktree:
         # Task with cleaned worktree
         workflow_initialize(task_id="TASK_TEST_LT_007")
         workflow_create_worktree(task_id="TASK_TEST_LT_007")
-        workflow_cleanup_worktree(task_id="TASK_TEST_LT_007")
+        # Simulate cleanup script having run
+        state_file = clean_tasks_dir / "TASK_TEST_LT_007" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "cleaned"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         tasks = list_tasks()
         lt_tasks = {t["task_id"]: t for t in tasks if t["task_id"].startswith("TASK_TEST_LT_00")}
@@ -1630,8 +1660,13 @@ class TestWorktreeRecycling:
         # Create the worktree directory to simulate it existing on disk
         wt_dir = tmp_path / "TASK_TEST_RC_001"
         wt_dir.mkdir(exist_ok=True)
-        # Mark as recyclable via cleanup with keep_on_disk
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_001", keep_on_disk=True)
+        # Simulate cleanup script marking as recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_001" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         result = _find_recyclable_worktree()
         assert result is not None
@@ -1643,7 +1678,13 @@ class TestWorktreeRecycling:
         """Recyclable worktree whose directory was removed returns None."""
         workflow_initialize(task_id="TASK_TEST_RC_002")
         workflow_create_worktree(task_id="TASK_TEST_RC_002", base_path="/nonexistent/path")
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_002", keep_on_disk=True)
+        # Simulate cleanup script marking as recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_002" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         result = _find_recyclable_worktree()
         assert result is None
@@ -1652,8 +1693,13 @@ class TestWorktreeRecycling:
         """No recyclable worktrees available returns None."""
         workflow_initialize(task_id="TASK_TEST_RC_003")
         workflow_create_worktree(task_id="TASK_TEST_RC_003")
-        # Normal cleanup (not keep_on_disk) → status=cleaned, not recyclable
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_003")
+        # Simulate cleanup script marking as cleaned (not recyclable)
+        state_file = clean_tasks_dir / "TASK_TEST_RC_003" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "cleaned"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         result = _find_recyclable_worktree()
         assert result is None
@@ -1665,7 +1711,13 @@ class TestWorktreeRecycling:
         workflow_create_worktree(task_id="TASK_TEST_RC_004", base_path=str(tmp_path))
         wt_dir = tmp_path / "TASK_TEST_RC_004"
         wt_dir.mkdir(exist_ok=True)
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_004", keep_on_disk=True)
+        # Simulate cleanup script marking as recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_004" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         # Create new task and recycle
         workflow_initialize(task_id="TASK_TEST_RC_005")
@@ -1700,7 +1752,13 @@ class TestWorktreeRecycling:
         workflow_create_worktree(task_id="TASK_TEST_RC_007", base_path=str(tmp_path))
         wt_dir = tmp_path / "TASK_TEST_RC_007"
         wt_dir.mkdir(exist_ok=True)
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_007", keep_on_disk=True)
+        # Simulate cleanup script marking as recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_007" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         workflow_initialize(task_id="TASK_TEST_RC_008")
         workflow_create_worktree(
@@ -1715,33 +1773,38 @@ class TestWorktreeRecycling:
         assert donor_info["worktree"].get("recycled_to") == "TASK_TEST_RC_008"
 
     def test_cleanup_worktree_keep_on_disk(self, clean_tasks_dir):
-        """keep_on_disk=True sets status to recyclable and omits remove command."""
+        """keep_on_disk=True returns script command with --keep-on-disk flag."""
         workflow_initialize(task_id="TASK_TEST_RC_009")
         workflow_create_worktree(task_id="TASK_TEST_RC_009")
         result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_009", keep_on_disk=True)
 
         assert result["success"] is True
-        assert result["worktree"]["status"] == "recyclable"
-        # No git worktree remove command
-        for cmd in result["git_commands"]:
-            assert "git worktree remove" not in cmd
-        assert "recyclable" in result["message"]
+        assert "--keep-on-disk" in result["cleanup_command"]
+        # Validate-only: state not modified
+        assert result["worktree"]["status"] == "active"
 
     def test_cleanup_worktree_normal_unchanged(self, clean_tasks_dir):
-        """Normal cleanup (keep_on_disk=False) still works as before."""
+        """Normal cleanup (keep_on_disk=False) returns script command without --keep-on-disk."""
         workflow_initialize(task_id="TASK_TEST_RC_010")
         workflow_create_worktree(task_id="TASK_TEST_RC_010")
         result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_010", keep_on_disk=False)
 
         assert result["success"] is True
-        assert result["worktree"]["status"] == "cleaned"
-        assert any("git worktree remove" in cmd for cmd in result["git_commands"])
+        assert "--keep-on-disk" not in result["cleanup_command"]
+        assert "cleanup-worktree.py" in result["cleanup_command"]
 
     def test_cleanup_rejects_recyclable(self, clean_tasks_dir):
         """Can't clean up an already recyclable worktree."""
         workflow_initialize(task_id="TASK_TEST_RC_011")
         workflow_create_worktree(task_id="TASK_TEST_RC_011")
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_011", keep_on_disk=True)
+        # Simulate script having set status to recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_011" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
         result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_011")
 
         assert result["success"] is False
@@ -1751,12 +1814,192 @@ class TestWorktreeRecycling:
         """list_tasks shows recyclable status and action."""
         workflow_initialize(task_id="TASK_TEST_RC_012")
         workflow_create_worktree(task_id="TASK_TEST_RC_012")
-        workflow_cleanup_worktree(task_id="TASK_TEST_RC_012", keep_on_disk=True)
+        # Simulate cleanup script marking as recyclable
+        state_file = clean_tasks_dir / "TASK_TEST_RC_012" / "state.json"
+        with open(state_file) as f:
+            state = json.load(f)
+        state["worktree"]["status"] = "recyclable"
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
 
         tasks = list_tasks()
         task = next(t for t in tasks if t["task_id"] == "TASK_TEST_RC_012")
         assert task["worktree"]["status"] == "recyclable"
         assert task["worktree"]["action"] == "recyclable"
+
+
+class TestWSLDetection:
+    """Test WSL detection and worktree WSL-specific behavior."""
+
+    def test_is_wsl_false_on_linux(self):
+        """_is_wsl returns False when /proc/version has no 'microsoft'."""
+        from unittest.mock import mock_open, patch
+        m = mock_open(read_data="Linux version 5.15.0-generic (buildd@lgw01) (gcc 11.2.0)")
+        with patch("builtins.open", m):
+            assert _is_wsl() is False
+
+    def test_is_wsl_true_on_wsl(self):
+        """_is_wsl returns True when /proc/version contains 'microsoft'."""
+        from unittest.mock import mock_open, patch
+        m = mock_open(read_data="Linux version 5.15.90.1-microsoft-standard-WSL2")
+        with patch("builtins.open", m):
+            assert _is_wsl() is True
+
+    def test_create_worktree_wsl_warning(self, clean_tasks_dir):
+        """WSL + /mnt/ cwd produces a warning in the result."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_WSL_001")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            # Make cwd look like /mnt/c/git/repo
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/mnt/c/git/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/mnt/c/git/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_WSL_001")
+        assert result["success"] is True
+        assert len(result["warnings"]) > 0
+        assert "WSL" in result["warnings"][0]
+        assert result["wsl_use_native_commands"] is True
+
+    def test_create_worktree_no_warning_home_path(self, clean_tasks_dir):
+        """WSL + /home/ base_path produces no WSL warnings."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_WSL_002")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/home/user/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/home/user/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_WSL_002", base_path="/home/user/worktrees")
+        assert result["success"] is True
+        assert result["warnings"] == []
+        assert result["wsl_use_native_commands"] is False
+
+    def test_create_worktree_wsl_use_native_commands_flag(self, clean_tasks_dir):
+        """WSL + /mnt/ path sets wsl_use_native_commands to True."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_WSL_003")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/mnt/c/git/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/mnt/c/git/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_WSL_003")
+        assert result["wsl_use_native_commands"] is True
+
+    def test_create_worktree_wsl_native_path_override(self, clean_tasks_dir):
+        """When wsl_native_path is configured, it overrides base_path."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_WSL_004")
+        mock_config = {
+            "config": {
+                "worktree": {"wsl_native_path": "/home/testuser/{repo_name}-worktrees"}
+            }
+        }
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.config_tools.config_get_effective", return_value=mock_config), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "myrepo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/home/testuser/myrepo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/home/testuser/myrepo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_WSL_004")
+        assert result["success"] is True
+        assert result["worktree"]["path"] == "/home/testuser/myrepo-worktrees/TASK_TEST_WSL_004"
+        # Path is under /home/ so no WSL warning
+        assert result["warnings"] == []
+        assert result["wsl_use_native_commands"] is False
+
+
+class TestFixPathsCommands:
+    """Test fix_paths_commands generation for WSL worktrees."""
+
+    def test_wsl_mnt_worktree_has_fix_paths_commands(self, clean_tasks_dir):
+        """WSL + /mnt/ worktree returns fix_paths_commands with script invocation."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_FP_001")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/mnt/c/git/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/mnt/c/git/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_FP_001")
+        assert result["success"] is True
+        cmds = result["fix_paths_commands"]
+        assert len(cmds) == 1
+        assert "fix-worktree-paths.py" in cmds[0]
+        assert "TASK_TEST_FP_001" in cmds[0]
+
+    def test_wsl_mnt_fix_paths_uses_script(self, clean_tasks_dir):
+        """WSL + /mnt/ worktree uses fix-worktree-paths.py script."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_FP_002")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/mnt/c/git/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/mnt/c/git/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_FP_002")
+        cmds = result["fix_paths_commands"]
+        assert len(cmds) == 1
+        assert cmds[0] == "python3 scripts/fix-worktree-paths.py TASK_TEST_FP_002"
+
+    def test_non_wsl_has_empty_fix_paths(self, clean_tasks_dir):
+        """Non-WSL worktree returns empty fix_paths_commands."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_FP_003")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=False):
+            result = workflow_create_worktree(task_id="TASK_TEST_FP_003")
+        assert result["success"] is True
+        assert result["fix_paths_commands"] == []
+
+    def test_wsl_home_path_has_empty_fix_paths(self, clean_tasks_dir):
+        """WSL + /home/ path returns empty fix_paths_commands (no Windows compat needed)."""
+        from unittest.mock import patch
+        workflow_initialize(task_id="TASK_TEST_FP_004")
+        with patch("agentic_workflow_server.state_tools._is_wsl", return_value=True), \
+             patch("agentic_workflow_server.state_tools.Path") as mock_path:
+            mock_cwd = mock_path.cwd.return_value
+            mock_cwd.name = "repo"
+            mock_cwd.resolve.return_value = type("P", (), {"__str__": lambda s: "/home/user/repo"})()
+            mock_cwd.__truediv__ = lambda s, k: clean_tasks_dir.parent / k if k == ".tasks" else type("P", (), {"__str__": lambda s2: f"/home/user/repo/{k}"})()
+            result = workflow_create_worktree(task_id="TASK_TEST_FP_004", base_path="/home/user/worktrees")
+        assert result["success"] is True
+        assert result["fix_paths_commands"] == []
+
+    def test_recycled_worktree_has_empty_fix_paths(self, clean_tasks_dir):
+        """Recycled worktree returns empty fix_paths_commands."""
+        from unittest.mock import patch
+        import os
+        # Create and mark a worktree as recyclable
+        workflow_initialize(task_id="TASK_TEST_FP_005")
+        workflow_create_worktree(task_id="TASK_TEST_FP_005")
+        # Create the actual worktree directory so _find_recyclable_worktree finds it
+        state_dir = clean_tasks_dir / "TASK_TEST_FP_005"
+        state = json.load(open(state_dir / "state.json"))
+        wt_rel = state["worktree"]["path"]
+        wt_abs = os.path.normpath(os.path.join(str(clean_tasks_dir.parent), wt_rel))
+        os.makedirs(wt_abs, exist_ok=True)
+        # Simulate cleanup script marking as recyclable
+        state["worktree"]["status"] = "recyclable"
+        with open(state_dir / "state.json", "w") as f:
+            json.dump(state, f, indent=2)
+
+        # Now create a new task that recycles
+        workflow_initialize(task_id="TASK_TEST_FP_006")
+        result = workflow_create_worktree(task_id="TASK_TEST_FP_006", recycle=True)
+        assert result["success"] is True
+        if "recycled_from" in result:
+            # Recycled path always returns empty fix_paths_commands
+            assert result["fix_paths_commands"] == []
+        else:
+            # Recycling fell back to fresh — fix_paths depends on WSL detection
+            assert "fix_paths_commands" in result
 
 
 if __name__ == "__main__":

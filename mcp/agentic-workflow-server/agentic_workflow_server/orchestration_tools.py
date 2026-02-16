@@ -1194,8 +1194,7 @@ def crew_format_completion(
         worktree_commands = [
             f"git checkout {base_branch}",
             f"git merge {branch}",
-            f"git worktree remove {wt.get('path', '')}",
-            f"git branch -d {branch}",
+            f"python3 scripts/cleanup-worktree.py {resolved_task_id} --remove-branch",
         ]
 
     # Beads commands

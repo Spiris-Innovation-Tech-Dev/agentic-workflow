@@ -640,3 +640,4 @@ worktree:
   copy_settings: true            # Copy host CLI settings (e.g., .claude/settings.local.json) to worktree
   recycle: prompt                # prompt | auto | never — reuse finished worktree dirs instead of creating new ones
   sync_before_create: prompt     # prompt | auto | never — fetch and check if base branch is behind remote
+  wsl_native_path: ""            # WSL only: override base_path to a /home/ path for faster I/O (e.g., "/home/{user}/{repo_name}-worktrees")

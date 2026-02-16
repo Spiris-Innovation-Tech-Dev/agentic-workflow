@@ -61,8 +61,8 @@ Worktrees:
 
 Cleanup candidates (workflow complete, worktree still active):
   TASK_041  ../repo-wt/TASK_041  crew/add-feature
-    -> Run: workflow_cleanup_worktree(task_id="TASK_041")
-    -> Or keep for reuse: workflow_cleanup_worktree(task_id="TASK_041", keep_on_disk=True)
+    -> Run: python3 scripts/cleanup-worktree.py TASK_041 --remove-branch
+    -> Or keep for reuse: python3 scripts/cleanup-worktree.py TASK_041 --keep-on-disk
 
 Recyclable worktrees (available for reuse):
   TASK_040  ../repo-wt/TASK_040  crew/old-feature
@@ -143,7 +143,7 @@ Linked Tasks: TASK_039 (builds_on), TASK_040 (related)
 ### Actions
 
 - **Resume a task**: `/crew resume TASK_XXX` (Claude) or `@crew-resume TASK_XXX` (Gemini/Copilot)
-- **Cleanup a worktree**: `workflow_cleanup_worktree(task_id="TASK_XXX")`
+- **Cleanup a worktree**: `python3 scripts/cleanup-worktree.py TASK_XXX --remove-branch`
 - **View task details**: Read `.tasks/TASK_XXX/plan.md`
 - **View agent outputs**: Check `.tasks/TASK_XXX/*.md`
 - **Check context**: `workflow_get_context_usage()`

@@ -30,30 +30,43 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
    - `prompt` → ask user: "Reuse an existing finished worktree directory? (yes/no)" → set `<recycle>` accordingly
 8. **Create worktree**: Call `workflow_create_worktree(task_id="TASK_XXX", base_branch="<current branch from step 1>", ai_host="<ai_host>", recycle=<recycle>)` MCP tool — this branches from your current branch, not main.
    If the response contains `recycled_from`, this is a recycled worktree — the git commands will use `git worktree move` + `git checkout` instead of `git worktree add`.
-9. **Execute git commands**: Run the git commands returned by the tool
+   If `warnings` is non-empty, print each warning. If a warning mentions WSL performance, ask user: "Continue anyway? (yes/no)". If no, abort.
+9. **Execute git commands**: Run the git commands returned by the tool.
+   - If `wsl_use_native_commands` is `true` in the MCP response (WSL + `/mnt/` path):
+     Run git commands via PowerShell for native NTFS performance. For each git command:
+     1. Get the Windows cwd: `wslpath -w "$(pwd)"`
+     2. Convert any WSL-relative paths in the command to Windows-relative paths (replace `/` with `\` in path arguments)
+     3. Run: `powershell.exe -Command "cd '<win_cwd>'; <git_command_with_win_paths>"`
+     Example: `git worktree add -b crew/sad-639 ../repo-worktrees/TASK_014 main`
+     becomes: `powershell.exe -Command "cd 'C:\git\repo'; git worktree add -b crew/sad-639 '..\repo-worktrees\TASK_014' main"`
+   - Otherwise → run git commands directly in WSL (existing behavior)
 10. **Setup worktree environment**: Run the `setup_commands` returned by `workflow_create_worktree` (in order).
    These commands:
    - Symlink `.tasks/` to the main repo (for MCP tools and convenience)
    - Copy host settings (e.g., `.claude/settings.local.json`) with `additionalDirectories` patched in, granting the worktree session read/write access to the parent repo's `.tasks/` directory. This is critical — symlinks alone are not reliable for Claude Code file access.
    If `config_get_effective()` → `worktree.copy_settings` is `false`, skip the settings copy commands (but still run the `.tasks/` symlink command, which is always the first command).
    If any command fails, print a warning but continue.
-11. **Fix paths for WSL/Windows compatibility** (skip for recycled worktrees — paths are already relative): The worktree's `.git` file and the main repo's `.git/worktrees/TASK_XXX/gitdir` contain absolute WSL paths that Windows tools (Visual Studio, PowerShell git) can't read. Convert both to relative paths. **CRITICAL: These files MUST have LF line endings (no CRLF). Use `printf` to write them — do NOT use file-write tools or `echo`.**
-   - Read `<worktree_path>/.git` to get the current absolute gitdir path
-   - Compute the relative path from the worktree to the main repo's `.git/worktrees/TASK_XXX` (e.g., `../../<repo_name>/.git/worktrees/TASK_XXX`)
-   - Write with: `printf 'gitdir: <relative_path>\n' > <worktree_path>/.git`
-   - Read `<main_repo>/.git/worktrees/TASK_XXX/gitdir` to get the current absolute path
-   - Compute the relative path back to the worktree (e.g., `../../../<repo_name>-worktrees/TASK_XXX/.git`)
-   - Write with: `printf '<relative_path>\n' > <main_repo>/.git/worktrees/TASK_XXX/gitdir`
-   - Verify both files: `cat -A <worktree_path>/.git` should show `$` at end of line (LF), NOT `^M$` (CRLF)
+11. **Fix paths for WSL/Windows compatibility**: Run the `fix_paths_commands` returned by `workflow_create_worktree` (if any). This runs `python3 scripts/fix-worktree-paths.py TASK_XXX` which converts absolute WSL paths in the worktree's `.git` file and the main repo's `.git/worktrees/TASK_XXX/gitdir` to relative paths so Windows tools (Visual Studio, PowerShell git) can read them. The script computes the correct relative paths, writes files with LF line endings, and verifies the results — do NOT compute or fix paths manually.
+   - If `fix_paths_commands` is empty (non-WSL or non-`/mnt/` path), skip this step.
 12. **Install dependencies in worktree** (skip for recycled worktrees — dependencies already installed): Detect and install project dependencies so the worktree is ready to use. Check for these files **in the worktree directory** and run the first match:
-   - `package-lock.json` → `npm ci` (in worktree dir)
-   - `yarn.lock` → `yarn install --frozen-lockfile` (in worktree dir)
-   - `pnpm-lock.yaml` → `pnpm install --frozen-lockfile` (in worktree dir)
-   - `requirements.txt` → `pip install -r requirements.txt` (in worktree dir)
-   - `pyproject.toml` → `pip install -e .` (in worktree dir)
-   - `Gemfile.lock` → `bundle install` (in worktree dir)
-   - `go.sum` → `go mod download` (in worktree dir)
-   - `Cargo.lock` → `cargo fetch` (in worktree dir)
+   - If `wsl_use_native_commands` is `true` in the MCP response (WSL + `/mnt/` path):
+     Convert worktree path to Windows: `wslpath -w <worktree_path>`
+     Run via PowerShell for each detected package manager:
+       - `package-lock.json` → `powershell.exe -Command "cd '<win_path>'; npm ci"`
+       - `yarn.lock` → `powershell.exe -Command "cd '<win_path>'; yarn install --frozen-lockfile"`
+       - `pnpm-lock.yaml` → `powershell.exe -Command "cd '<win_path>'; pnpm install --frozen-lockfile"`
+       - `requirements.txt` → `powershell.exe -Command "cd '<win_path>'; python -m pip install -r requirements.txt"`
+       - `pyproject.toml` → `powershell.exe -Command "cd '<win_path>'; python -m pip install -e ."`
+     Note: pip on Windows must use `python -m pip`, not `pip` directly.
+   - Otherwise (not WSL, or worktree not on `/mnt/`) → run normally in WSL:
+     - `package-lock.json` → `npm ci` (in worktree dir)
+     - `yarn.lock` → `yarn install --frozen-lockfile` (in worktree dir)
+     - `pnpm-lock.yaml` → `pnpm install --frozen-lockfile` (in worktree dir)
+     - `requirements.txt` → `pip install -r requirements.txt` (in worktree dir)
+     - `pyproject.toml` → `pip install -e .` (in worktree dir)
+     - `Gemfile.lock` → `bundle install` (in worktree dir)
+     - `go.sum` → `go mod download` (in worktree dir)
+     - `Cargo.lock` → `cargo fetch` (in worktree dir)
    - If none found, skip this step.
    - If the install command fails, print a warning but continue — the user can fix it manually.
 13. **Print result** (use the exact format below, substituting actual values):

@@ -3249,6 +3249,15 @@ def workflow_get_optional_phases(
 # Git Worktree Support
 # ============================================================================
 
+def _is_wsl() -> bool:
+    """Detect if running inside WSL."""
+    try:
+        with open("/proc/version") as f:
+            return "microsoft" in f.read().lower()
+    except (FileNotFoundError, PermissionError):
+        return False
+
+
 def _slugify(text: str) -> str:
     """Convert text to git-branch-safe slug."""
     text = text.lower().strip()
@@ -3352,12 +3361,40 @@ def workflow_create_worktree(
 
     # Determine repo name from cwd
     repo_name = Path.cwd().name
+
+    # WSL + /mnt/ detection for performance warnings and native commands
+    wsl = _is_wsl()
+    warnings: list[str] = []
+    wsl_use_native_commands = False
+
+    if wsl and not base_path:
+        # Check for wsl_native_path config override
+        from agentic_workflow_server.config_tools import config_get_effective
+        effective = config_get_effective(task_id=resolved_task_id)
+        wsl_native_path = effective["config"].get("worktree", {}).get("wsl_native_path", "")
+        if wsl_native_path:
+            # Substitute placeholders
+            wsl_native_path = wsl_native_path.replace("{user}", os.getenv("USER", ""))
+            wsl_native_path = wsl_native_path.replace("{repo_name}", repo_name)
+            base_path = wsl_native_path
+
     if not base_path:
         base_path = f"../{repo_name}-worktrees"
 
     if not branch_name:
         branch_name = _generate_branch_name(resolved_task_id, state)
     worktree_path = f"{base_path}/{resolved_task_id}"
+
+    # Resolve absolute path to check if it's on /mnt/ (NTFS via 9P)
+    resolved_abs = os.path.normpath(os.path.join(str(Path.cwd().resolve()), worktree_path))
+    if wsl and resolved_abs.startswith("/mnt/"):
+        wsl_use_native_commands = True
+        warnings.append(
+            "WSL performance warning: Worktree is on /mnt/ (NTFS via 9P bridge). "
+            "Git and dependency commands will run via PowerShell (native Windows) to bypass 9P. "
+            "To avoid this, set worktree.wsl_native_path to a /home/ path "
+            "(e.g., '/home/{user}/{repo_name}-worktrees')."
+        )
 
     # Assign a color scheme based on the numeric portion of the task ID
     task_num_match = re.search(r'\d+', resolved_task_id)
@@ -3428,6 +3465,9 @@ def workflow_create_worktree(
             "recycled_from": donor_task_id,
             "git_commands": git_commands,
             "setup_commands": setup_commands,
+            "fix_paths_commands": [],  # Recycled worktrees already have relative paths
+            "warnings": warnings,
+            "wsl_use_native_commands": wsl_use_native_commands,
             "message": f"Recycled worktree from {donor_task_id}. Run git commands, then setup commands, then work in {worktree_path}"
         }
 
@@ -3464,6 +3504,17 @@ def workflow_create_worktree(
             f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
         )
 
+    # Build fix_paths_commands for WSL/Windows compatibility.
+    # After `git worktree add`, the .git file and .git/worktrees/TASK/gitdir
+    # contain absolute WSL paths that Windows tools can't read.  The
+    # fix-worktree-paths.py script converts both to relative paths with
+    # correct LF line endings.
+    fix_paths_commands: list[str] = []
+    if wsl and resolved_abs.startswith("/mnt/"):
+        fix_paths_commands = [
+            f"python3 scripts/fix-worktree-paths.py {resolved_task_id}"
+        ]
+
     return {
         "success": True,
         "task_id": resolved_task_id,
@@ -3472,7 +3523,10 @@ def workflow_create_worktree(
             f"git worktree add -b {branch_name} {worktree_path} {base_branch}"
         ],
         "setup_commands": setup_commands,
-        "message": f"Run the git commands above, then the setup commands, then work in {worktree_path}"
+        "fix_paths_commands": fix_paths_commands,
+        "warnings": warnings,
+        "wsl_use_native_commands": wsl_use_native_commands,
+        "message": f"Run the git commands above, then the setup commands, then fix_paths_commands (if any), then work in {worktree_path}"
     }
 
 
@@ -3507,17 +3561,20 @@ def workflow_cleanup_worktree(
     remove_branch: bool = True,
     keep_on_disk: bool = False
 ) -> dict[str, Any]:
-    """Mark worktree as cleaned up and return git commands for the orchestrator.
+    """Validate worktree state and return a cleanup script command.
+
+    This function does NOT modify state — the cleanup script handles both
+    git operations and state updates atomically (state only updates if git
+    commands succeed).
 
     Args:
         task_id: Task identifier. If not provided, uses active task.
-        remove_branch: Whether to include branch deletion in git commands.
+        remove_branch: Whether to include branch deletion.
         keep_on_disk: If True, mark worktree as 'recyclable' instead of
-            'cleaned' and omit the git worktree remove command. The directory
-            stays on disk for reuse by a future task.
+            'cleaned' and skip git worktree remove.
 
     Returns:
-        Git commands to execute for cleanup.
+        Script command to execute for cleanup.
     """
     task_dir = find_task_dir(task_id)
     if not task_dir:
@@ -3542,44 +3599,21 @@ def workflow_cleanup_worktree(
             "error": f"Worktree already cleaned for {resolved_task_id}"
         }
 
-    worktree_path = worktree["path"]
-    branch_name = worktree["branch"]
-
+    # Build the script command
+    script_args = [resolved_task_id]
     if keep_on_disk:
-        # Mark as recyclable — no git worktree remove, directory stays
-        git_commands = []
-        if remove_branch:
-            git_commands.append(f"git branch -d {branch_name}")
-
-        state["worktree"]["status"] = "recyclable"
-        state["worktree"]["cleaned_at"] = datetime.now().isoformat()
-        _save_state(task_dir, state)
-
-        return {
-            "success": True,
-            "task_id": resolved_task_id,
-            "worktree": state["worktree"],
-            "git_commands": git_commands,
-            "message": f"Worktree marked as recyclable (kept on disk). A future task can reuse {worktree_path}."
-        }
-
-    # Normal cleanup — remove worktree from disk
-    git_commands = [
-        f"git worktree remove {worktree_path}"
-    ]
+        script_args.append("--keep-on-disk")
     if remove_branch:
-        git_commands.append(f"git branch -d {branch_name}")
+        script_args.append("--remove-branch")
 
-    state["worktree"]["status"] = "cleaned"
-    state["worktree"]["cleaned_at"] = datetime.now().isoformat()
-    _save_state(task_dir, state)
+    script_command = f"python3 scripts/cleanup-worktree.py {' '.join(script_args)}"
 
     return {
         "success": True,
         "task_id": resolved_task_id,
-        "worktree": state["worktree"],
-        "git_commands": git_commands,
-        "message": f"Worktree marked as cleaned. Run the git commands above to finalize."
+        "worktree": worktree,
+        "cleanup_command": script_command,
+        "message": f"Run the cleanup command above from the main repo to remove the worktree."
     }
 
 

@@ -69,6 +69,7 @@ DEFAULT_CONFIG = {
         "ai_host": "auto",
         "recycle": "prompt",
         "sync_before_create": "prompt",
+        "wsl_native_path": "",
     },
     "auto_actions": {
         "run_tests": True,
