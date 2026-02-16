@@ -67,6 +67,8 @@ DEFAULT_CONFIG = {
         "cleanup_on_complete": "prompt",
         "auto_launch": "prompt",
         "ai_host": "auto",
+        "recycle": "prompt",
+        "sync_before_create": "prompt",
     },
     "auto_actions": {
         "run_tests": True,

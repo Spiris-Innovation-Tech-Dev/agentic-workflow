@@ -4,987 +4,188 @@ You are the entry point for the AI-augmented development workflow. This workflow
 
 ## Command: /crew $ARGS
 
-Parse the arguments to determine the action:
+### Step 1: Parse Arguments
 
-### Actions
-
-1. **`/crew <task description> [options]`** or **`/crew start <task description> [options]`**
-   - Start a new workflow for the given task
-   - Creates .tasks/TASK_XXX directory
-   - Begins with Architect agent
-
-2. **`/crew resume <task_id>`**
-   - Resume an existing workflow from its last state
-   - Reads state from .tasks/TASK_XXX/state.json
-
-3. **`/crew status`**
-   - Show status of all active workflows
-   - List .tasks/ contents
-
-4. **`/crew proceed`**
-   - Skip current checkpoint and continue
-
-5. **`/crew config`**
-   - Show/edit workflow configuration
-
-6. **`/crew ask <agent> <question or task> [options]`**
-   - Invoke a single agent for a quick consultation without starting a full workflow
-   - No state management, no phase enforcement
-   - Returns the agent's analysis directly
-   - See "Single Agent Consultation" section below
-
-### Command-Line Options
-
-These options override configuration file settings for this task only:
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--mode <mode>` | Workflow mode: full\|turbo\|fast\|minimal\|auto | `--mode turbo` |
-| `--loop-mode` | Enable Ralph-style autonomous looping | `--loop-mode` |
-| `--no-loop` | Disable loop mode (even if config enables it) | `--no-loop` |
-| `--max-iterations <n>` | Set max iterations per step | `--max-iterations 20` |
-| `--verify <method>` | Verification method: tests\|build\|lint\|all | `--verify tests` |
-| `--no-checkpoints` | Skip all human checkpoints (autonomous) | `--no-checkpoints` |
-| `--parallel` | Run Reviewer+Skeptic in parallel | `--parallel` |
-| `--beads <issue>` | Link to beads issue | `--beads PROJ-42` |
-| `--config <file>` | Use specific config file | `--config ./my-config.yaml` |
-| `--task <file>` | Read task description from file | `--task ./task.md` |
-
-### Workflow Modes
-
-The `--mode` option controls which agents run:
-
-| Mode | Agents | Use Case | Est. Cost |
-|------|--------|----------|-----------|
-| **full** | All 7 (Arch, Dev, Rev, Skeptic, Impl, Feedback, TW) | Complex features, critical changes | $0.50+ |
-| **turbo** | Developer, Implementer, Technical Writer | Standard features (Opus 4.6 single-pass) | $0.15 |
-| **fast** | Skip Skeptic and Feedback | Standard changes needing review | $0.25 |
-| **minimal** | Developer and Implementer only | Simple fixes, typos | $0.10 |
-| **auto** | Auto-detect based on task description | Default | varies |
-
-**Auto-detection rules:**
-- `minimal`: Keywords like "typo", "simple fix", "rename"; single file affected
-- `turbo`: Standard feature work without security/auth/DB/API concerns (leverages Opus 4.6 comprehensive planning)
-- `fast`: Standard keywords without security/auth/DB mentions (when turbo not matched)
-- `full`: Security, authentication, database, API, breaking changes
-
-### Task Description Patterns
-
-**Pattern 1: Simple inline task**
+Call the MCP tool to parse all arguments:
 ```
-/crew "Add user authentication with JWT"
+crew_parse_args(raw_args: "$ARGS")
 ```
 
-**Pattern 2: Options first, then multi-line task**
-```
-/crew --loop-mode --no-checkpoints --max-iterations 50
+This returns `action`, `task_description`, `options`, and `errors`. Handle errors by showing them to the user.
 
-Implement a complete caching layer:
+### Step 2: Route by Action
 
-## Requirements
-- Redis-based cache for API responses
-- Cache invalidation on writes
-- TTL configuration per endpoint
-- Fallback to direct DB on cache miss
+Based on the parsed `action`:
 
-## Success Criteria
-- All existing tests pass
-- Cache hit rate > 80% for read endpoints
-- No performance regression
-```
-
-**Pattern 3: Task file for complex/reusable tasks**
-```
-/crew --loop-mode --task ./tasks/implement-caching.md
-```
-
-**Pattern 4: Beads issue as task source**
-```
-/crew --beads CACHE-12 --loop-mode
-```
-(Reads task description from beads issue body)
-
-### Argument Parsing Rules
-
-1. **Options can come before or after task description**
-2. **Task description is everything that's not an option**
-3. **If `--task <file>` provided, read description from file**
-4. **If `--beads <issue>` provided and no description, read from issue**
-5. **Multi-line input is supported** - just keep typing after the command
-
-### Task File Format (for --task option)
-
-Create a `.md` file with your task description:
-
-```markdown
-# Task: Implement Caching Layer
-
-## Description
-Add Redis-based caching to improve API performance.
-
-## Requirements
-- [ ] Cache GET responses with configurable TTL
-- [ ] Invalidate cache on POST/PUT/DELETE
-- [ ] Add cache-control headers
-- [ ] Implement cache warming on startup
-
-## Success Criteria
-- All tests pass
-- Response time < 50ms for cached endpoints
-- Cache hit rate > 80%
-
-## Notes
-- Use existing Redis connection from config
-- Follow patterns in src/cache/base.ts
-```
-
-### Examples
-
-```bash
-# Simple task (auto-detects minimal mode)
-/crew "Fix typo in README"
-
-# Explicit minimal mode for simple fixes
-/crew --mode minimal "Rename function foo to bar"
-
-# Fast mode - skip skeptic and feedback
-/crew --mode fast "Add logout button to navbar"
-
-# Full mode for critical changes
-/crew --mode full "Implement user authentication with JWT"
-
-# Loop mode for test fixing
-/crew --loop-mode --verify tests "Fix all failing unit tests"
-
-# Complex overnight task with file
-/crew --loop-mode --no-checkpoints --max-iterations 50 --task ./migrate-to-v2.md
-
-# From beads issue
-/crew --beads API-42 --loop-mode
-
-# Parallel reviewer+skeptic for faster planning
-/crew --parallel "Add caching layer to API"
-
-# Multi-line inline (just keep typing)
-/crew --loop-mode --no-checkpoints
-
-Refactor the authentication module:
-
-1. Extract JWT logic to separate service
-2. Add refresh token support
-3. Update all endpoints to use new service
-4. Ensure all auth tests pass
-
-Output <promise>COMPLETE</promise> when done.
-
-# Quick architect opinion
-/crew ask architect "Should we use Redis or Memcached for caching?"
-
-# Skeptic review of a plan
-/crew ask skeptic --file .tasks/TASK_042/plan.md
-
-# Reviewer check with context
-/crew ask reviewer "Review this auth flow" --context src/auth/
-```
-
-## Single Agent Consultation
-
-The `/crew ask` command lets you invoke individual agents without the full workflow overhead. This is useful for:
-- Getting a quick second opinion
-- Reviewing a specific piece of code or design
-- Exploring alternatives before committing to a full workflow
-
-### Syntax
-
-```
-/crew ask <agent> <question or task> [options]
-```
-
-### Available Agents
-
-| Agent | Best For |
-|-------|----------|
-| `architect` | System design, trade-offs, architectural decisions |
-| `developer` | Implementation approach, code structure |
-| `reviewer` | Code review, plan validation, correctness checks |
-| `skeptic` | Edge cases, failure modes, what could go wrong |
-| `feedback` | Comparing implementation vs plan, deviation analysis |
-
-### Options for `/crew ask`
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--context <path>` | Include specific files/directories as context | `--context src/auth/` |
-| `--file <path>` | Read the question/task from a file | `--file ./question.md` |
-| `--plan <path>` | Include a plan file (for reviewer/skeptic) | `--plan .tasks/TASK_042/plan.md` |
-| `--diff` | Include current git diff as context | `--diff` |
-| `--model <model>` | Override model (default: opus) | `--model sonnet` |
-
-### How It Works
-
-1. **Load agent prompt** from `~/.claude/agents/<agent>.md`
-2. **Gather minimal context**:
-   - If `--context`: Read specified files/directories
-   - If `--diff`: Include `git diff` output
-   - If `--plan`: Include plan file contents
-   - Always: Check for `{knowledge_base}` and include inventory
-3. **Spawn single agent** with the Task tool
-4. **Return response** directly to user (no state saved)
-
-### Implementation
-
-When `/crew ask <agent> <question>` is detected:
-
-```
-Task(
-  subagent_type: "general-purpose",
-  model: "[from --model or default opus]",
-  max_turns: 15,  // from subagent_limits.max_turns.consultation_agents
-  prompt: "
-[Insert contents of ~/.claude/agents/<agent>.md]
-
-## Question/Task
-<question or contents of --file>
-
-## Context
-[If --context: contents of specified files]
-[If --diff: git diff output]
-[If --plan: plan file contents]
-
-## Knowledge Base Inventory
-[List files in {knowledge_base} if it exists]
-
-Provide your analysis. This is a standalone consultation, not part of a full workflow.
-"
-)
-```
-
-### Examples
-
-```bash
-# Quick architectural decision
-/crew ask architect "We need to add real-time notifications. Should we use WebSockets, SSE, or polling?"
-
-# Review specific code with context
-/crew ask reviewer "Is this authentication implementation secure?" --context src/auth/middleware.ts
-
-# Get skeptic's view on a plan
-/crew ask skeptic "What could go wrong with this migration?" --plan .tasks/TASK_015/plan.md
-
-# Developer perspective on current changes
-/crew ask developer "How should I structure these changes?" --diff
-
-# Multi-line question
-/crew ask architect
-
-We're considering two approaches for the payment system:
-
-1. Direct integration with Stripe API
-2. Using a payment abstraction layer
-
-What are the trade-offs? Which would you recommend for a system that might need to support multiple payment providers later?
-```
+- **start** → Go to "Starting a New Workflow"
+- **resume** → Call `crew_get_resume_state(task_id)`, display summary, then go to "Run Phase Loop"
+- **status** → Show status of all active workflows (list `.tasks/` contents)
+- **proceed** → Skip current checkpoint, call `crew_get_next_phase()`, go to "Run Phase Loop"
+- **config** → Call `config_get_effective()` and display configuration
+- **ask** → Go to "Single Agent Consultation"
 
 ## Starting a New Workflow
 
-When starting a new workflow:
+### Step 1: Resolve Task Description
 
-### Step 1: Setup
+1. If `options.task_file` provided → read description from that file
+2. Else if `options.beads` provided and no description → read from beads issue body (`bd show <issue>`)
+3. Else → use `task_description` from parsed args
 
-1. Generate task ID: `TASK_XXX` where XXX is next available number
-2. Create directory: `.tasks/TASK_XXX_<slugified-name>/`
-3. Initialize workflow state (JSON format):
-   ```bash
-   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase architect
+### Step 2: Initialize Task
+
+Call the MCP tool to initialize everything in one step:
+```
+crew_init_task(task_description: "<resolved description>", options: <parsed options>)
+```
+
+This handles: config loading, workflow init, mode detection, KB inventory, optional agent detection, saving config.yaml and task.md.
+
+Display to user:
+- Task ID and directory
+- Workflow mode (with reason if auto-detected)
+- Optional agents enabled (with reasons)
+- Effective configuration highlights
+
+### Step 3: Context Preparation (if configured)
+
+If `gemini_research.enabled` is true in the returned config:
+1. Check prerequisites: `which repomix`, `which gemini`
+2. Run file discovery, generate repomix config, run repomix
+3. Run Gemini analysis
+4. Save outputs to task directory
+5. If tools unavailable and `fallback_to_opus: true`, skip and continue
+
+### Step 4: Beads Integration (if configured)
+
+If `options.beads` was provided or beads auto-create is enabled:
+1. Link/create beads issue: `bd update <issue> --status=in_progress`
+2. Add start comment: `bd comments add <issue> "Workflow <task_id> started"`
+
+### Step 5: Run Phase Loop
+
+This is the core workflow loop. Repeat until complete:
+
+```
+next = crew_get_next_phase(task_id)
+```
+
+Based on `next.action`:
+
+#### action: "spawn_agent"
+1. Read agent prompt from `next.agent_prompt_path`
+2. Substitute variables in prompt: `{knowledge_base}` → `next.variables.kb_path`, `{task_directory}` → `next.variables.task_directory`
+3. Read context files listed in `next.context_files`
+4. If `next.beads_comment`, run: `bd comments add <issue> "<comment>"`
+5. Call `workflow_transition(to_phase: next.agent)` to update state
+6. Handle parallel execution if `next.parallel_with` is set:
+   - Spawn both agents simultaneously using parallel Task calls with `run_in_background: true`
+   - Wait for both with TaskOutput
+   - Call `workflow_start_parallel_phase`, `workflow_complete_parallel_phase` for each, then `workflow_merge_parallel_results`
+7. Otherwise spawn single agent:
    ```
-   This creates `state.json` and sets initial phase to `architect`
-4. **Inventory knowledge base**:
-   - Check if `{knowledge_base}` directory exists (from config, default: `docs/ai-context/`)
-   - List all files in the directory (don't assume specific filenames)
-   - Save inventory to state for agents to reference
-   - Agents should know what documentation is available, not assume specific files exist
-5. Check for repomix config - generate context if available
-
-### Step 2: Set Workflow Mode
-
-Determine and set the workflow mode:
-
-1. **Parse --mode option** from command line
-2. **If --mode auto or not specified**: Call `workflow_detect_mode` MCP tool to analyze task
-3. **Call `workflow_set_mode`** MCP tool to store mode in state
-
-```
-workflow_set_mode(mode: "auto" | "full" | "turbo" | "fast" | "minimal")
-```
-
-The mode determines which phases run:
-- **full**: architect → developer → reviewer → skeptic → implementer → feedback → technical_writer
-- **turbo**: developer → implementer → technical_writer (Opus 4.6 single-pass planning)
-- **fast**: architect → developer → reviewer → implementer → technical_writer
-- **minimal**: developer → implementer → technical_writer
-
-### Step 2.5: Load Agent Prompts
-
-Read the agent prompts from `~/.claude/agents/`:
-- orchestrator.md
-- architect.md
-- developer.md
-- reviewer.md
-- skeptic.md
-- implementer.md
-- feedback.md
-- technical-writer.md
-
-### Step 3: Load Configuration (Cascade)
-
-Load configuration with cascading overrides:
-
-```
-1. Global defaults:  ~/.claude/crew-config.yaml
-       ↓ (merge)
-2. Project config:   <repo>/.claude/crew-config.yaml (if exists)
-       ↓ (merge)
-3. Task config:      .tasks/TASK_XXX/config.yaml (if resuming)
-       ↓ (override)
-4. Command args:     --loop-mode, --max-iterations, etc.
-```
-
-**Configuration loading:**
-1. Read `~/.claude/crew-config.yaml` as base config
-2. Check for `<repo>/.claude/crew-config.yaml`:
-   - If exists, deep-merge into config (project settings override global)
-3. If resuming task, check `.tasks/TASK_XXX/config.yaml`:
-   - If exists, deep-merge into config (task settings override project)
-4. Parse command-line arguments:
-   - `--loop-mode` → `loop_mode.enabled: true`
-   - `--no-loop` → `loop_mode.enabled: false`
-   - `--max-iterations N` → `loop_mode.max_iterations.per_step: N`
-   - `--verify METHOD` → `loop_mode.verification.method: METHOD`
-   - `--no-checkpoints` → all checkpoints set to `false`
-   - `--beads ISSUE` → `beads.enabled: true`, `beads.linked_issue: ISSUE`
-   - `--task FILE` → read task description from file
-   - `--config FILE` → use specified config file instead of defaults
-
-**Task description resolution:**
-1. If `--task <file>` provided → read description from file
-2. Else if `--beads <issue>` provided and no inline description → read from beads issue
-3. Else → use remaining arguments as description (supports multi-line)
-
-**Save effective config:**
-- Write merged config to `.tasks/TASK_XXX/config.yaml`
-- This allows resuming with same settings
-- Also save resolved task description to `.tasks/TASK_XXX/task.md`
-
-**Variable substitution in agent prompts:**
-When building prompts for agents, substitute these placeholders:
-- `{knowledge_base}` → value of `config.knowledge_base` (default: `docs/ai-context/`)
-- `{task_directory}` → value of `config.task_directory` (default: `.tasks/`)
-
-This allows project-specific configuration of paths.
-
-### Step 3.5: Context Preparation Phase
-
-If `gemini_research.enabled` is true in configuration:
-
-#### 3.5.1: Check Prerequisites
-
-1. Verify `repomix` is available: `which repomix`
-2. Verify `gemini` CLI is available: `which gemini`
-3. If either missing and `fallback_to_opus: true`:
-   - Log warning and skip to Step 4
-   - Set `state.json` → `context_preparation.status: skipped`
-4. If either missing and `fallback_to_opus: false`:
-   - Stop workflow with error message
-
-#### 3.5.2: Intelligent File Discovery
-
-Use the `/repomix-build` pattern to intelligently find relevant files:
-
-**Core Task Files**:
-- Search for files matching keywords in task description
-- Use `ag -l "keyword"` to find relevant code
-
-**Base Classes/Interfaces**:
-- Parse imports in core files to find base classes
-- Look for abstract classes, interfaces, base types
-- Check for inheritance chains
-
-**Referenced Files**:
-- Trace imports from core files (1-2 levels deep)
-- Find files that import the core files (dependents)
-
-**Example Patterns**:
-- Search for similar implementations
-- Look for files with similar patterns
-- Find usage examples in tests
-
-**Documentation**:
-- Always include: `{knowledge_base}/*` (from config, default: `docs/ai-context/`)
-- Include: `README.md`, `docs/*.md`
-- Include: Architecture and pattern documentation
-
-#### 3.5.3: Generate Repomix Config
-
-Create `.tasks/TASK_XXX/repomix-context.json`:
-
-```json
-{
-  "include": [
-    "src/relevant/file.ts",
-    "src/base/class.ts",
-    "src/referenced/*.ts",
-    "src/examples/*.ts",
-    "{knowledge_base}/*.md"
-  ],
-  "ignore": [
-    "**/*.test.ts",
-    "**/node_modules/**",
-    "**/*.d.ts",
-    "**/dist/**"
-  ],
-  "output": {
-    "filePath": ".tasks/TASK_XXX/repomix-output.txt",
-    "style": "xml",
-    "showLineNumbers": true
-  }
-}
-```
-
-#### 3.5.4: Run Repomix
-
-Execute repomix to aggregate files:
-
-```bash
-repomix -c .tasks/TASK_XXX/repomix-context.json
-```
-
-Log the output size and file count for tracking.
-
-#### 3.5.5: Run Gemini Analysis
-
-Execute single comprehensive Gemini analysis with sections for all agents:
-
-```bash
-gemini -p "@.tasks/TASK_XXX/repomix-output.txt
-{analysis_prompt from workflow-config.yaml}
-
-Task: $TASK_DESCRIPTION" > .tasks/TASK_XXX/gemini-analysis.md
-```
-
-The analysis_prompt is loaded from `gemini_research.analysis_prompt` and includes:
-- ARCHITECTURAL_CONTEXT (for Architect agent)
-- IMPLEMENTATION_PATTERNS (for Developer agent)
-- REVIEW_CHECKLIST (for Reviewer agent)
-- FAILURE_MODES (for Skeptic agent)
-
-#### 3.5.6: Update State
-
-Add to `.tasks/TASK_XXX/state.json`:
-
-```json
-{
-  "context_preparation": {
-    "status": "complete",
-    "started_at": "2024-01-15T10:31:00Z",
-    "completed_at": "2024-01-15T10:33:00Z",
-    "file_discovery": {
-      "total_files": 47,
-      "categories": {
-        "core": 5,
-        "base_classes": 3,
-        "referenced": 12,
-        "examples": 8,
-        "docs": 4
-      }
-    },
-    "repomix": {
-      "status": "success",
-      "config_path": ".tasks/TASK_XXX/repomix-context.json",
-      "output_path": ".tasks/TASK_XXX/repomix-output.txt",
-      "files_included": 47,
-      "output_size_kb": 850
-    },
-    "gemini": {
-      "status": "success",
-      "analysis_path": ".tasks/TASK_XXX/gemini-analysis.md",
-      "analysis_time_seconds": 45,
-      "sections_generated": [
-        "architectural_context",
-        "implementation_patterns",
-        "review_checklist",
-        "failure_modes",
-        "documentation_context"
-      ]
-    },
-    "fallbacks_used": {
-      "repomix": false,
-      "gemini": false
-    },
-    "errors": []
-  }
-}
-```
-
-#### 3.5.7: Error Handling
-
-**If repomix fails**:
-- Log error to `.tasks/TASK_XXX/errors.log`
-- If `error_handling.repomix_unavailable: fallback`:
-  - Use direct file reading (top 10 most relevant files)
-  - Set `state.json` → `fallbacks_used.repomix: true`
-- If `error_handling.repomix_unavailable: fail`:
-  - Stop workflow with error
-
-**If Gemini fails**:
-- Log error with Gemini output
-- If `error_handling.gemini_unavailable: fallback`:
-  - Skip Gemini analysis
-  - Pass repomix output directly to Opus agents (original behavior)
-  - Set `state.json` → `fallbacks_used.gemini: true`
-- If `error_handling.gemini_unavailable: fail`:
-  - Stop workflow with error
-
-**If Gemini times out**:
-- Kill process after `gemini_timeout` seconds
-- Check if partial output exists in `gemini-analysis.md`
-- If partial output usable, continue with warning
-- Otherwise apply fallback behavior
-
-### Step 3.6: Detect Optional Specialized Agents
-
-Check if specialized agents should be enabled based on task description and files:
-
-1. **Security Auditor**: If task mentions auth, password, token, secret, SQL, encryption
-   - Or files match: `**/auth/**`, `**/security/**`, `**/.env*`
-   - Call `workflow_enable_optional_phase("security_auditor", reason)`
-
-2. **Performance Analyst**: If task mentions performance, cache, optimize, slow, scale
-   - Or files match: `**/database/**`, `**/cache/**`
-   - Call `workflow_enable_optional_phase("performance_analyst", reason)`
-
-3. **API Guardian**: If task mentions API, endpoint, breaking, deprecate, schema
-   - Or files match: `**/api/**`, `**/routes/**`, `**/openapi*`
-   - Call `workflow_enable_optional_phase("api_guardian", reason)`
-
-4. **Accessibility Reviewer**: If task mentions UI, component, form, a11y, WCAG
-   - Or files match: `**/*.tsx`, `**/*.jsx`, `**/*.vue`
-   - Call `workflow_enable_optional_phase("accessibility_reviewer", reason)`
-
-These agents run after the Reviewer phase (parallel with Skeptic if enabled).
-
-### Step 4: Start Planning Loop
-
-Launch the Architect agent first using the Task tool:
-
-```
-Task(
-  subagent_type: "general-purpose",
-  model: "opus",
-  max_turns: 30,  // from subagent_limits.max_turns.planning_agents
-  prompt: "
-[Insert contents of ~/.claude/agents/architect.md]
-
-## Task to Analyze
-$TASK_DESCRIPTION
-
-## Codebase Context
-[If gemini-analysis.md exists: Extract and insert ARCHITECTURAL_CONTEXT section]
-[Else: Insert repomix output or key files]
-
-## Knowledge Base
-[Insert contents from configured knowledge_base directory (config.knowledge_base, default: docs/ai-context/)]
-[Substitute {knowledge_base} in agent prompt with actual path from config]
-
-## Knowledge Base Inventory
-[List what documentation files exist in {knowledge_base} - agents should reference actual files, not assumed filenames]
-
-Provide your architectural analysis.
-"
-)
-```
-
-### Step 5: Process Architect Output
-
-After Architect completes:
-1. Save output to `.tasks/TASK_XXX/architect.md`
-2. **Parse docs_needed** from output and save to state:
-   ```python
-   import re, json
-   match = re.search(r'<docs_needed>\s*(\[.*?\])\s*</docs_needed>', output, re.DOTALL)
-   if match:
-       docs = json.loads(match.group(1))
-       # Run: python workflow_state.py --task-dir .tasks/TASK_XXX/ mark-docs docs
+   Task(
+     subagent_type: "general-purpose",
+     model: "opus",
+     max_turns: next.max_turns,
+     prompt: "<agent prompt with context>"
+   )
    ```
-3. **Transition state** to developer:
-   ```bash
-   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase developer
-   ```
-4. Check if checkpoint is configured (`after_architect: true`)
-5. If checkpoint: Present summary and ask human to approve/revise/restart
-6. If no checkpoint: Proceed to Developer agent
-
-### Step 6: Continue Through Planning Loop
-
-The planning loop adapts based on workflow mode:
-- **full mode**: Architect → Developer → Reviewer → Skeptic
-- **fast mode**: Architect → Developer → Reviewer (skip Skeptic)
-- **minimal mode**: Developer only (skip Architect, Reviewer, Skeptic)
-
-At each step:
-1. **Check if phase is in mode**: Call `workflow_is_phase_in_mode(phase)` - skip if not included
-2. Load previous agent output
-3. **Transition state** before spawning:
-   ```bash
-   python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase <next_phase>
-   ```
-4. Spawn next agent with context
-5. **Record cost**: Call `workflow_record_cost(agent, model, input_tokens, output_tokens, duration)`
-6. Save output
-7. **Parse structured outputs** (review_issues, recommendation)
-8. Check for checkpoint
-9. Handle human input if needed
-10. **If REVISE**: Loop back to developer, increment iteration in state
-
-#### Parallel Reviewer+Skeptic Execution
-
-When `--parallel` flag is set or `parallelization.reviewer_skeptic.enabled: true` in config:
-
-**Check for agent teams first**: Call `workflow_get_agent_team_config("parallel_review")`.
-
-**If agent teams enabled** (`agent_teams.parallel_review.enabled: true`):
-1. Set environment: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-2. Launch Reviewer and Skeptic as real teammate agents with shared task list
-3. Lead agent coordinates only (`delegate_mode: true`), doesn't execute review itself
-4. Teammates communicate findings via inter-agent messaging
-5. Require plan approval before proceeding (`plan_approval: true`)
-
-**If agent teams not enabled** (default):
-1. After Developer completes, call `workflow_start_parallel_phase(["reviewer", "skeptic"])`
-2. Spawn both agents simultaneously using parallel Task calls:
-   ```
-   Task(subagent_type: "general-purpose", prompt: "[Reviewer prompt]", max_turns: 30, run_in_background: true)
-   Task(subagent_type: "general-purpose", prompt: "[Skeptic prompt]", max_turns: 30, run_in_background: true)
-   ```
-3. Wait for both to complete (use TaskOutput with block=true)
-4. For each completed agent, call `workflow_complete_parallel_phase(phase, summary, concerns)`
-5. Call `workflow_merge_parallel_results(merge_strategy: "deduplicate")`
-6. Use merged concerns for implementation planning
-
-### Step 7: Start Implementation Loop
-
-Once planning is approved:
-1. Save final plan to `.tasks/TASK_XXX/plan.md`
-2. Launch Implementer agent for first unchecked step
-3. After each step: check progress percentage
-4. At checkpoints (25/50/75%): pause for review (unless `--no-checkpoints`)
-5. Run Feedback agent to detect deviations
-6. Handle deviations per configuration
-
-#### Loop Mode Implementation (if `loop_mode.enabled: true`)
-
-When loop mode is active for implementation phase:
-
-```
-For each implementation step:
-  iteration = 0
-  while not complete and iteration < max_iterations.per_step:
-    iteration++
-
-    1. Execute step (Implementer agent)
-    2. Run verification:
-       - If method=tests: run test suite
-       - If method=build: run build command
-       - If method=lint: run linter
-       - If method=all: run all above
-
-    3. Check result:
-       - If passing:
-         - Output <promise>STEP_COMPLETE</promise>
-         - Move to next step
-       - If failing:
-         - Read FULL error output
-         - Analyze failure
-         - If same error 3x: try different approach
-         - Retry
-
-    4. Check escalation triggers:
-       - If iteration >= before_escalate: pause for human
-       - If repeated_failure: escalate
-       - If scope_creep detected: escalate
-
-  If max_iterations reached without success:
-    Output <promise>BLOCKED: [summary]</promise>
-    Escalate to human
-```
-
-**Verification commands** (auto-detected or from config):
-- `tests`: `npm test`, `pytest`, `go test ./...`, etc.
-- `build`: `npm run build`, `go build`, `cargo build`, etc.
-- `lint`: `npm run lint`, `eslint`, `golangci-lint`, etc.
-
-**Self-correction protocol:**
-1. Read the FULL error output (not just summary)
-2. Identify root cause (not just symptom)
-3. Check if fix aligns with plan
-4. Make minimal changes
-5. If same error 3x, try fundamentally different approach
-
-#### Agent Team Implementation
-
-When `agent_teams.parallel_implementation.enabled` is true (check via `workflow_get_agent_team_config("parallel_implementation")`):
-
-1. **Analyze plan for independence**: Orchestrator reviews the implementation plan and identifies steps that can run concurrently (no shared file dependencies, no ordering constraints)
-2. **Create task entries**: Use TaskCreate for each independent implementation step with clear scope and acceptance criteria
-3. **Launch agent team**: Set `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and launch with `delegate_mode: true`
-4. **Self-claim execution**: Agents self-claim tasks from the shared task list, executing implementation steps in parallel
-5. **Coherence check**: After all steps complete, run the Feedback agent to verify cross-step coherence and integration
-6. **Constraints**: Respect `max_concurrent_agents` (default: 3) and `require_independent_steps` (only parallelize truly independent steps)
-
-When `parallel_implementation` is not enabled, use the existing sequential implementation loop from Step 7.
-
-### Step 8: Documentation Phase
-
-After implementation completes, launch the Technical Writer agent:
-
-```
-Task(
-  subagent_type: "general-purpose",
-  model: "opus",
-  max_turns: 20,  // from subagent_limits.max_turns.documentation_agents
-  prompt: "
-[Insert contents of ~/.claude/agents/technical-writer.md]
-
-## Task Completed
-$TASK_DESCRIPTION
-
-## Files Changed
-[List of files created/modified during implementation]
-
-## Files Read/Used (not modified)
-[List of files that were referenced, extended, or imported - these may need documentation if undocumented]
-
-## Implementation Notes
-[Key findings and patterns discovered during implementation]
-
-## Developer's Documentation Notes (from plan.md)
-[Extract the 'Documentation Notes' section from the Developer's plan - includes new patterns, base classes used, and suggested doc updates]
-
-## Existing Documentation
-[Contents of configured knowledge_base directory (config.knowledge_base, default: docs/ai-context/)]
-
-Analyze the implementation and update the AI context documentation.
-Use the Developer's Documentation Notes as a starting point - they identified what might need documenting during planning.
-Focus especially on documenting any existing base classes, frameworks, or patterns that were used but lack documentation.
-"
-)
-```
-
-After Technical Writer completes:
-1. Save output to `.tasks/TASK_XXX/documentation-updates.md`
-2. If `checkpoints.documentation.after_technical_writer: true`:
-   - Present summary of documentation changes
-   - Ask human to approve/revise documentation updates
-3. Apply approved documentation changes to `{knowledge_base}` (from config)
-
-### Step 9: Completion
-
-When all steps complete:
-1. Final review checkpoint
-2. **Display cost summary**: Call `workflow_get_cost_summary()` and display:
-   ```
-   Workflow Complete: TASK_XXX
-   Mode: [mode] | Duration: [time]
-
-   Cost Summary:
-     Architect (opus):    [tokens] tokens  $[cost]
-     Developer (opus):    [tokens] tokens  $[cost]
-     ...
-     ─────────────────────────────────────
-     Total:              [tokens] tokens  $[cost]
-   ```
-3. Generate commit message (include documentation changes)
-4. Ask human to approve commit
-5. Update lessons-learned.md
-6. **Record concern outcomes** (optional): If any concerns were raised, prompt user to mark outcomes for agent performance tracking
-7. **Worktree cleanup** (if worktree was used):
-   - Call `workflow_get_worktree_info()` to check if a worktree is active
-   - Based on `worktree.cleanup_on_complete` config:
-     - `prompt`: Ask the user whether to merge the branch and remove the worktree
-     - `auto`: Call `workflow_cleanup_worktree()` and execute the returned git commands
-     - `never`: Leave the worktree in place, inform the user
-   - If merging: suggest `git merge <branch>` from the main repo before cleanup
-
-## State Management (Enforced)
-
-The workflow uses **enforced state management** with hooks to ensure agents run in the correct order.
-
-### State File: `.tasks/TASK_XXX/state.json`
-
-```json
-{
-  "task_id": "TASK_042",
-  "phase": "architect",
-  "phases_completed": [],
-  "review_issues": [],
-  "iteration": 1,
-  "docs_needed": [],
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z"
-}
-```
-
-### State Management Commands
-
-```bash
-# Initialize state for new task
-python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase architect
-
-# Transition to next phase
-python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ transition --phase developer
-
-# Get current state
-python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ get
-
-# Get state summary
-python ~/.claude/scripts/workflow_state.py --task-dir .tasks/TASK_XXX/ summary
-```
-
-### Phase Order (Enforced)
-
-The workflow MUST follow this phase order:
-1. `architect` - Read-only analysis, flags documentation gaps
-2. `developer` - Creates implementation plan
-3. `reviewer` - Validates plan, may loop back to developer
-4. `skeptic` - Edge case analysis
-5. `implementer` - Executes the plan
-6. `technical_writer` - Updates documentation (ALWAYS runs)
-
-**Enforcement hooks** prevent skipping phases:
-- `PreToolUse` hook blocks spawning wrong agents
-- `Stop` hook blocks completion before Technical Writer runs
-
-### Workflow Enforcement Diagram
-
-```
-User: /crew "Add feature X"
-        │
-        ▼
-┌─────────────────┐
-│ 1. ARCHITECT    │ ← Reads code, CLAUDE.md, docs
-│    (read-only)  │   Outputs: docs_needed → state.json
-└────────┬────────┘
-         │ transition(developer)
-         ▼
-┌─────────────────┐
-│ 2. DEVELOPER    │ ← Creates plan with doc notes
-│    (planning)   │   References architect's findings
-└────────┬────────┘
-         │ transition(reviewer)
-         ▼
-┌─────────────────┐
-│ 3. REVIEWER     │ ← Validates plan
-│    (read-only)  │   Outputs: review_issues → state.json
-└────────┬────────┘
-         │
-         ▼
-    ┌────────────┐
-    │ Issues?    │──YES──→ Loop back to DEVELOPER
-    └────────────┘              (iteration++)
-         │ NO
-         ▼
-┌─────────────────┐
-│ 4. SKEPTIC      │ ← Edge cases
-│    (read-only)  │   May add more issues
-└────────┬────────┘
-         │ transition(implementer)
-         ▼
-┌─────────────────┐
-│ 5. IMPLEMENTER  │ ← Executes plan
-│    (full access)│   Step by step
-└────────┬────────┘
-         │ transition(technical_writer)
-         ▼
-┌─────────────────┐
-│ 6. TECH WRITER  │ ← ALWAYS RUNS (enforced by Stop hook)
-│    (docs only)  │   Reads docs_needed from state
-└────────┬────────┘
-         │
-         ▼
-    Stop hook allows completion
-```
-
-### Parsing Agent Outputs
-
-After each agent completes, parse their structured output:
-
-**Architect output** → Extract `<docs_needed>` JSON:
-```python
-# Parse and save to state
-import json, re
-match = re.search(r'<docs_needed>\s*(\[.*?\])\s*</docs_needed>', output, re.DOTALL)
-if match:
-    docs = json.loads(match.group(1))
-    # Add to state.json via workflow_state.py
-```
-
-**Reviewer output** → Extract `<review_issues>` JSON and `<recommendation>`:
-```python
-# If recommendation is REVISE, loop back to developer
-# The review_issues are saved to state for tracking
-```
-
-### Beads Integration (Optional)
-
-When `beads.enabled: true` in configuration:
-- Links workflow to beads issue
-- Adds comments at phase transitions
-- Syncs status (in_progress, blocked, done)
-
-## Beads Integration
-
-When `beads.enabled: true` in configuration:
-
-### On Workflow Start
-1. If `--beads ISSUE` provided:
-   - Link task to existing beads issue
-   - Add comment: "Workflow TASK_XXX started for this issue"
-2. If `beads.auto_create_issue: true` and no issue linked:
-   - Create new beads issue with task description
-   - Link task to new issue
-
-### During Workflow
-1. If `beads.add_comments: true`:
-   - Add comment at each phase transition
-   - Add comment at each human checkpoint
-   - Add comment on escalations
-2. If `beads.sync_status: true`:
-   - Update issue status as workflow progresses:
-     - `in_progress` when implementation starts
-     - `blocked` on escalation
-     - `done` on completion
-
-### On Workflow Complete
-1. Add final comment with summary
-2. Update issue status to `done`
-3. Link to commit if created
-
-## Human Checkpoints
-
-When reaching a configured checkpoint, use AskUserQuestion:
-
+8. Save agent output to `.tasks/<task_id>/<agent>.md`
+9. Parse output: `crew_parse_agent_output(agent: next.agent, output_text: <output>, task_id: <task_id>)`
+10. If `has_blocking_issues` and recommendation is REVISE → loop back to developer
+11. Call `workflow_complete_phase()` to mark phase done
+12. Call `workflow_record_cost()` with token usage
+
+#### action: "checkpoint"
+Present checkpoint to user using AskUserQuestion:
 ```
 Based on the [Agent Name]'s analysis:
-
 [Summary of key findings/concerns]
-
 How would you like to proceed?
 ```
+Options: Approve, Revise, Restart, Skip
+- **Approve**: Call `workflow_add_human_decision()`, continue loop
+- **Revise**: Loop back to developer with feedback
+- **Restart**: Re-initialize from architect
+- **Skip**: Continue (not recommended)
 
-Options:
-- **Approve**: Continue to next phase
-- **Revise**: Send back with specific feedback
-- **Restart**: Start over with different approach
-- **Skip**: Skip this agent (not recommended)
+#### action: "complete"
+Go to "Completion"
+
+#### action: "process_output"
+The current phase output needs processing — parse it and check for checkpoint.
+
+### Step 6: Implementation Loop
+
+When the implementer phase is reached, use the implementation action tool:
+
+```
+impl = crew_get_implementation_action(task_id, last_verification_passed, last_error_output)
+```
+
+Based on `impl.action`:
+
+- **implement_step**: Spawn implementer for `impl.step_id`. If `impl.loop_mode`, run verification after.
+- **verify**: Run verification command, then call `crew_get_implementation_action` again with result.
+- **retry**: Re-attempt with `impl.should_try_different_approach` guidance. Use `impl.known_solution` if available.
+- **next_step**: Call `workflow_complete_step(step_id)`, then get next action.
+- **checkpoint**: Present progress checkpoint to user.
+- **escalate**: Pause and ask user for help. Show `impl.reason`.
+- **complete**: Implementation done, continue to next phase.
+
+### Step 7: Completion
+
+Call `crew_format_completion(task_id, files_changed)` to get:
+- Cost summary → display formatted table
+- Commit message → suggest to user
+- Worktree commands → execute based on `worktree_action` (prompt/auto/never)
+- Beads commands → execute to close/sync issues
+
+Display final summary:
+```
+Workflow Complete: <task_id>
+Mode: [mode] | Duration: [time]
+
+Cost Summary:
+  Agent (model):    [tokens] tokens  $[cost]
+  ...
+  Total:            [tokens] tokens  $[cost]
+```
+
+Ask human to approve commit. Record concern outcomes if any were raised.
+
+## Single Agent Consultation
+
+When action is "ask":
+
+1. Load agent prompt from `~/.claude/agents/<agent>.md`
+2. Gather context:
+   - If `options.context`: Read specified files/directories
+   - If `options.diff`: Include `git diff` output
+   - If `options.plan`: Include plan file contents
+   - If `options.file`: Read question from file
+3. Spawn single agent:
+   ```
+   Task(
+     subagent_type: "general-purpose",
+     model: options.model or "opus",
+     max_turns: 15,
+     prompt: "<agent prompt + question + context>"
+   )
+   ```
+4. Return response directly to user (no state saved)
+
+## Agent Prompt Composition
+
+When building prompts for agents, include:
+
+1. **Agent prompt** from `~/.claude/agents/<agent>.md`
+2. **Task description** from `.tasks/<task_id>/task.md`
+3. **Previous agent outputs** (context_files from `crew_get_next_phase`)
+4. **Gemini analysis** (if available, extract relevant section)
+5. **Knowledge base inventory** (list files, substitute `{knowledge_base}` path)
+6. **Variable substitution**: Replace `{knowledge_base}` and `{task_directory}` with config values
 
 ## Error Handling
 
@@ -995,11 +196,11 @@ If an agent fails or produces invalid output:
 
 ## Output to User
 
-Keep the user informed:
-- Show which agent is running
+Keep the user informed throughout:
+- Show which agent is running and its purpose
 - Summarize agent outputs concisely
-- Clearly indicate checkpoints
-- Show progress percentage
+- Clearly indicate checkpoints with options
+- Show progress percentage during implementation
 - Explain what happens next
 
 Now, process the command arguments and begin the workflow:

@@ -638,3 +638,5 @@ worktree:
   auto_launch: prompt          # prompt | auto | never
   ai_host: auto                # auto | claude | gemini | copilot
   copy_settings: true            # Copy host CLI settings (e.g., .claude/settings.local.json) to worktree
+  recycle: prompt                # prompt | auto | never — reuse finished worktree dirs instead of creating new ones
+  sync_before_create: prompt     # prompt | auto | never — fetch and check if base branch is behind remote

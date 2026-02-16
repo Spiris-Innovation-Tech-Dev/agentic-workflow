@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-02-16
+
+### Added
+- **Worktree recycling** — finished worktrees can be kept on disk (`keep_on_disk=True`) and reused by future tasks (`recycle=True`), avoiding slow full checkouts on large repos
+- `_find_recyclable_worktree()` helper — scans `.tasks/*/state.json` for worktrees with `status: "recyclable"` where the directory still exists
+- `recycle` parameter on `workflow_create_worktree` — when True and a recyclable candidate exists, returns `git worktree move` + `git checkout` commands instead of `git worktree add`; marks donor as `recycled`
+- `keep_on_disk` parameter on `workflow_cleanup_worktree` — when True, sets status to `recyclable` and omits `git worktree remove` command
+- **Pre-creation sync check** — `crew-worktree` now fetches from remote and warns if the base branch is behind before creating a worktree (agent-side, no new MCP tool)
+- `worktree.recycle` config option (`prompt` | `auto` | `never`, default: `prompt`)
+- `worktree.sync_before_create` config option (`prompt` | `auto` | `never`, default: `prompt`)
+- Branch column in `/crew-status` summary table — shows `crew/branch-name` for each task
+- `recyclable` worktree status and action in `list_tasks()` and `/crew-status`
+- 10 new tests in `TestWorktreeRecycling`
+
+### Changed
+- `crew-worktree.md` renumbered to 15 steps (new step 2: sync check, step 7: recycle resolution, steps 11/12 skip for recycled worktrees, step 13: enhanced output format)
+- `/crew-status` worktree overview now shows recyclable worktrees and `keep_on_disk` option on cleanup candidates
+- `workflow_cleanup_worktree` rejects worktrees with status `recyclable` (in addition to `cleaned`)
+- `list_tasks()` maps `recycled` status to `done` action, `recyclable` to `recyclable` action
+
 ## [0.4.0] - 2026-02-13
 
 ### Added

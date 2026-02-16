@@ -1,3 +1,28 @@
+---
+name: crew-status
+description: "Workflow Status — read-only overview of all tasks, worktrees, and model health"
+tools:
+  - "*"
+---
+
+## Tool Discipline
+
+Use direct tools for codebase exploration:
+- Use `grep` for searching file contents
+- Use `glob` for finding files by pattern
+- Use `view` for reading files
+- Use shell commands for git operations, tests, builds, and other system operations
+- Avoid spawning agents for simple searches
+
+## Git Safety
+
+When working in a shared repository:
+- Do **NOT** use git stash, git worktree directly (use MCP tools instead), or git clean commands
+- Do **NOT** switch branches unless explicitly requested by the user
+- Do **NOT** run `git commit`, `git push`, or `git add` unless explicitly requested
+- If you notice untracked or modified files outside your scope, ignore them
+- Never run `git checkout .` or `git restore .` — this would discard others' work-in-progress
+
 # Workflow Status
 
 **THIS COMMAND IS READ-ONLY. Do NOT modify any state. Do NOT call workflow_transition, workflow_complete_phase, workflow_can_transition, or any MCP tool that writes state. Do NOT evaluate implementations, advance workflows, or continue any task. ONLY read state and display it.**
@@ -32,20 +57,18 @@ Read `.tasks/TASK_XXX/state.json` and display:
 If multiple tasks:
 
 ```
-| Task     | Phase          | Progress | Worktree                | Branch                 | WT Status   | Action     | Last Update |
-|----------|----------------|----------|-------------------------|------------------------|-------------|------------|-------------|
-| TASK_042 | implementer    | 60%      | ../repo-wt/TASK_042     | crew/implement-caching | active      | resume     | 2 hours ago |
-| TASK_043 | developer      | -        | ../repo-wt/TASK_043     | crew/fix-login         | active      | resume     | 5 mins ago  |
-| TASK_041 | complete       | 100%     | ../repo-wt/TASK_041     | crew/add-feature       | active      | cleanup    | Yesterday   |
-| TASK_040 | complete       | 100%     | ../repo-wt/TASK_040     | crew/old-feature       | recyclable  | recyclable | 2 days ago  |
-| TASK_038 | complete       | 100%     | ../repo-wt/TASK_038     | crew/auth-jwt          | cleaned     | done       | 3 days ago  |
-| TASK_039 | architect      | -        | (none)                  | -                      | -           | resume     | 3 days ago  |
+| Task     | Phase          | Progress | Worktree                | WT Status | Action  | Last Update |
+|----------|----------------|----------|-------------------------|-----------|---------|-------------|
+| TASK_042 | implementer    | 60%      | ../repo-wt/TASK_042     | active    | resume  | 2 hours ago |
+| TASK_043 | developer      | -        | ../repo-wt/TASK_043     | active    | resume  | 5 mins ago  |
+| TASK_041 | complete       | 100%     | ../repo-wt/TASK_041     | active    | cleanup | Yesterday   |
+| TASK_040 | complete       | 100%     | ../repo-wt/TASK_040     | cleaned   | done    | 2 days ago  |
+| TASK_039 | architect      | -        | (none)                  | -         | resume  | 3 days ago  |
 ```
 
 **Action column meanings:**
 - `resume` — task is in progress, can be resumed in the worktree
 - `cleanup` — workflow complete but worktree still active, candidate for `workflow_cleanup_worktree()`
-- `recyclable` — worktree kept on disk for reuse by a future task
 - `done` — worktree already cleaned up, no action needed
 
 ### Worktree Overview
@@ -54,18 +77,13 @@ After the summary table, if any tasks have worktrees, display a dedicated worktr
 
 ```
 Worktrees:
-  Active:      3  (TASK_042, TASK_043, TASK_041)
-  Recyclable:  1  (TASK_040)
-  Cleaned:     1  (TASK_038)
-  None:        1  (TASK_039)
+  Active:  3  (TASK_042, TASK_043, TASK_041)
+  Cleaned: 1  (TASK_040)
+  None:    1  (TASK_039)
 
 Cleanup candidates (workflow complete, worktree still active):
-  TASK_041  ../repo-wt/TASK_041  crew/add-feature
+  TASK_041  ../repo-wt/TASK_041  crew/task-041
     -> Run: workflow_cleanup_worktree(task_id="TASK_041")
-    -> Or keep for reuse: workflow_cleanup_worktree(task_id="TASK_041", keep_on_disk=True)
-
-Recyclable worktrees (available for reuse):
-  TASK_040  ../repo-wt/TASK_040  crew/old-feature
 
 Git worktree disk check:
   Run `git worktree list` to verify — orphaned worktrees not tracked in .tasks/ will show there.

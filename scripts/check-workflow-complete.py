@@ -53,6 +53,11 @@ def main():
     if state.phase is None:
         sys.exit(0)
 
+    # Allow exit if a worktree was just created — work continues in the other terminal
+    worktree = state._state.get("worktree")
+    if worktree and worktree.get("status") == "active":
+        sys.exit(0)
+
     is_complete, missing_phase = state.is_complete()
 
     if is_complete:

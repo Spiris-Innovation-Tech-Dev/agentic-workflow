@@ -43,6 +43,19 @@ DISCOVERY_CATEGORIES = [
     "preference"
 ]
 
+# 8 dark color schemes for worktree terminal tabs.  Cycled by task number.
+# Each entry has: name (WT scheme name), tab (WT tab color), bg (background), fg (foreground).
+CREW_COLOR_SCHEMES = [
+    {"name": "Crew Ocean",    "tab": "#1A6B8A", "bg": "#0C1B2A", "fg": "#C8D6E5"},
+    {"name": "Crew Forest",   "tab": "#2D7D46", "bg": "#0E1F14", "fg": "#C5D1C0"},
+    {"name": "Crew Sunset",   "tab": "#C75B39", "bg": "#1F120E", "fg": "#D8C8BA"},
+    {"name": "Crew Amethyst", "tab": "#7B5EA7", "bg": "#16121F", "fg": "#CCC4D8"},
+    {"name": "Crew Steel",    "tab": "#5C7A8A", "bg": "#141C22", "fg": "#C0CCD4"},
+    {"name": "Crew Ember",    "tab": "#B85C3A", "bg": "#1A110D", "fg": "#D4C4B4"},
+    {"name": "Crew Frost",    "tab": "#4BA3C7", "bg": "#0D1820", "fg": "#C4D4E0"},
+    {"name": "Crew Earth",    "tab": "#8D7B4A", "bg": "#1A170E", "fg": "#D0C8B8"},
+]
+
 
 _cached_tasks_dir: Optional[Path] = None
 
@@ -635,8 +648,10 @@ def list_tasks() -> list[dict[str, Any]]:
                         wt_action = "cleanup"
                     elif wt_status == "active" and not is_complete:
                         wt_action = "resume"
-                    elif wt_status == "cleaned":
+                    elif wt_status in ("cleaned", "recycled"):
                         wt_action = "done"
+                    elif wt_status == "recyclable":
+                        wt_action = "recyclable"
 
                 task_entry = {
                     "task_id": task_dir.name,
@@ -3234,11 +3249,70 @@ def workflow_get_optional_phases(
 # Git Worktree Support
 # ============================================================================
 
+def _slugify(text: str) -> str:
+    """Convert text to git-branch-safe slug."""
+    text = text.lower().strip()
+    text = re.sub(r'[^a-z0-9\s_-]', '', text)
+    text = re.sub(r'[\s_]+', '-', text)
+    text = re.sub(r'-+', '-', text)
+    return text.strip('-')
+
+
+def _find_recyclable_worktree() -> Optional[tuple[Path, dict]]:
+    """Scan tasks for a worktree with status 'recyclable' whose directory still exists.
+
+    Returns:
+        Tuple of (task_dir, state) for the recyclable donor, or None if not found.
+    """
+    tasks_dir = get_tasks_dir()
+    if not tasks_dir.exists():
+        return None
+
+    for task_dir in sorted(tasks_dir.iterdir()):
+        if not task_dir.is_dir():
+            continue
+        state_file = task_dir / "state.json"
+        if not state_file.exists():
+            continue
+        state = _load_state(task_dir)
+        worktree = state.get("worktree")
+        if not worktree or worktree.get("status") != "recyclable":
+            continue
+        # Check that the directory still exists on disk
+        wt_path = worktree.get("path")
+        if not wt_path:
+            continue
+        # Resolve relative to main repo
+        abs_path = os.path.normpath(os.path.join(str(Path.cwd()), wt_path))
+        if os.path.isdir(abs_path):
+            return (task_dir, state)
+
+    return None
+
+
+def _generate_branch_name(task_id: str, state: dict) -> str:
+    """Generate unique branch name from beads/jira ticket or task description."""
+    # Priority 1: linked issue
+    linked = state.get("linked_issue") or state.get("beads_issue")
+    if linked:
+        return f"crew/{_slugify(linked)}"
+    # Priority 2: description
+    desc = state.get("description", "")
+    if desc:
+        slug = _slugify(desc)[:50].rstrip("-")
+        if slug:
+            return f"crew/{slug}"
+    # Fallback
+    return f"crew/{task_id.lower().replace('_', '-')}"
+
+
 def workflow_create_worktree(
     task_id: Optional[str] = None,
     base_path: Optional[str] = None,
     base_branch: str = "main",
-    ai_host: str = "claude"
+    ai_host: str = "claude",
+    branch_name: Optional[str] = None,
+    recycle: bool = False
 ) -> dict[str, Any]:
     """Record worktree metadata in state and return git commands for the orchestrator.
 
@@ -3250,6 +3324,11 @@ def workflow_create_worktree(
         base_path: Directory for worktrees. Defaults to ../REPO-worktrees/.
         base_branch: Branch to base the worktree on.
         ai_host: AI host CLI (determines which settings to copy). Default: claude.
+        branch_name: Explicit branch name. If not provided, derives from
+            linked issue, task description, or task ID.
+        recycle: If True, attempt to reuse a recyclable worktree directory
+            instead of creating a fresh one. Falls back to normal creation
+            if no recyclable worktree is available.
 
     Returns:
         Worktree metadata, git commands, and setup commands to execute.
@@ -3276,14 +3355,89 @@ def workflow_create_worktree(
     if not base_path:
         base_path = f"../{repo_name}-worktrees"
 
-    branch_name = f"crew/{resolved_task_id.lower().replace('_', '-')}"
+    if not branch_name:
+        branch_name = _generate_branch_name(resolved_task_id, state)
     worktree_path = f"{base_path}/{resolved_task_id}"
 
+    # Assign a color scheme based on the numeric portion of the task ID
+    task_num_match = re.search(r'\d+', resolved_task_id)
+    task_num = int(task_num_match.group()) if task_num_match else 0
+    color_scheme_index = task_num % len(CREW_COLOR_SCHEMES)
+
+    # Try recycling an existing worktree
+    donor = None
+    if recycle:
+        donor = _find_recyclable_worktree()
+
+    if donor:
+        donor_dir, donor_state = donor
+        donor_worktree = donor_state["worktree"]
+        donor_path = donor_worktree["path"]
+        donor_branch = donor_worktree["branch"]
+        donor_task_id = donor_state.get("task_id", donor_dir.name)
+
+        worktree_metadata = {
+            "status": "active",
+            "path": worktree_path,
+            "branch": branch_name,
+            "base_branch": base_branch,
+            "color_scheme_index": color_scheme_index,
+            "created_at": datetime.now().isoformat(),
+            "recycled_from": donor_task_id,
+        }
+
+        state["worktree"] = worktree_metadata
+        _save_state(task_dir, state)
+
+        # Mark donor as recycled
+        donor_state["worktree"]["status"] = "recycled"
+        donor_state["worktree"]["recycled_to"] = resolved_task_id
+        donor_state["worktree"]["recycled_at"] = datetime.now().isoformat()
+        _save_state(donor_dir, donor_state)
+
+        # Git commands: move worktree dir, switch to base branch, create new branch, delete old
+        git_commands = [
+            f"git worktree move {donor_path} {worktree_path}",
+            f"git -C {worktree_path} checkout {base_branch}",
+            f"git -C {worktree_path} checkout -b {branch_name}",
+            f"git branch -d {donor_branch}",
+        ]
+
+        # Build setup commands (symlink .tasks/ + copy host settings)
+        main_repo_abs = str(Path.cwd().resolve())
+        worktree_abs = os.path.normpath(os.path.join(main_repo_abs, worktree_path))
+
+        setup_commands = [
+            f"ln -sfn {shlex.quote(os.path.join(main_repo_abs, '.tasks'))} {shlex.quote(os.path.join(worktree_abs, '.tasks'))}"
+        ]
+
+        main_tasks_abs = os.path.join(main_repo_abs, ".tasks")
+
+        for settings_file in _HOST_SETTINGS.get(ai_host, []):
+            src = os.path.join(main_repo_abs, settings_file)
+            dest = os.path.join(worktree_abs, settings_file)
+            setup_commands.append(
+                f"python3 -c {shlex.quote(_SETTINGS_PATCH_SCRIPT)} "
+                f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
+            )
+
+        return {
+            "success": True,
+            "task_id": resolved_task_id,
+            "worktree": worktree_metadata,
+            "recycled_from": donor_task_id,
+            "git_commands": git_commands,
+            "setup_commands": setup_commands,
+            "message": f"Recycled worktree from {donor_task_id}. Run git commands, then setup commands, then work in {worktree_path}"
+        }
+
+    # Fresh worktree creation (no recycling or no candidate found)
     worktree_metadata = {
         "status": "active",
         "path": worktree_path,
         "branch": branch_name,
         "base_branch": base_branch,
+        "color_scheme_index": color_scheme_index,
         "created_at": datetime.now().isoformat()
     }
 
@@ -3350,13 +3504,17 @@ def workflow_get_worktree_info(
 
 def workflow_cleanup_worktree(
     task_id: Optional[str] = None,
-    remove_branch: bool = True
+    remove_branch: bool = True,
+    keep_on_disk: bool = False
 ) -> dict[str, Any]:
     """Mark worktree as cleaned up and return git commands for the orchestrator.
 
     Args:
         task_id: Task identifier. If not provided, uses active task.
         remove_branch: Whether to include branch deletion in git commands.
+        keep_on_disk: If True, mark worktree as 'recyclable' instead of
+            'cleaned' and omit the git worktree remove command. The directory
+            stays on disk for reuse by a future task.
 
     Returns:
         Git commands to execute for cleanup.
@@ -3378,7 +3536,7 @@ def workflow_cleanup_worktree(
             "error": f"No worktree configured for {resolved_task_id}"
         }
 
-    if worktree.get("status") == "cleaned":
+    if worktree.get("status") in ("cleaned", "recyclable"):
         return {
             "success": False,
             "error": f"Worktree already cleaned for {resolved_task_id}"
@@ -3387,6 +3545,25 @@ def workflow_cleanup_worktree(
     worktree_path = worktree["path"]
     branch_name = worktree["branch"]
 
+    if keep_on_disk:
+        # Mark as recyclable — no git worktree remove, directory stays
+        git_commands = []
+        if remove_branch:
+            git_commands.append(f"git branch -d {branch_name}")
+
+        state["worktree"]["status"] = "recyclable"
+        state["worktree"]["cleaned_at"] = datetime.now().isoformat()
+        _save_state(task_dir, state)
+
+        return {
+            "success": True,
+            "task_id": resolved_task_id,
+            "worktree": state["worktree"],
+            "git_commands": git_commands,
+            "message": f"Worktree marked as recyclable (kept on disk). A future task can reuse {worktree_path}."
+        }
+
+    # Normal cleanup — remove worktree from disk
     git_commands = [
         f"git worktree remove {worktree_path}"
     ]
@@ -3537,6 +3714,10 @@ def workflow_get_launch_command(
         # claude "prompt" starts interactive with the prompt as the first message
         cli_with_prompt = f"{cli} {safe_prompt}"
 
+    # Resolve color scheme for this worktree
+    color_idx = worktree.get("color_scheme_index", 0)
+    scheme = CREW_COLOR_SCHEMES[color_idx % len(CREW_COLOR_SCHEMES)]
+
     if terminal_env == "tmux":
         # tmux: open new window, cd to worktree, run CLI with prompt
         tmux_cmd = (
@@ -3544,14 +3725,25 @@ def workflow_get_launch_command(
             f"{shlex.quote(cli_with_prompt)}"
         )
         launch_commands.append(tmux_cmd)
+        # Apply per-window background color so each task is visually distinct
+        tmux_style_cmd = (
+            f"tmux set-option -t {safe_task_id} -w window-style "
+            f"'bg={scheme['bg']},fg={scheme['fg']}'"
+        )
+        launch_commands.append(tmux_style_cmd)
 
     elif terminal_env == "windows_terminal":
         # Windows Terminal from WSL: run wsl.exe as the tab process so WT
         # opens a WSL session. Use --cd for the working directory.
         # bash -lic: -l (login, sources .profile) + -i (interactive, sources
         # .bashrc where nvm/fnm/volta add CLI tools to PATH) + -c (command).
+        # --tabColor and --colorScheme give each task a distinct visual identity.
         wt_cmd = (
-            f"wt.exe new-tab wsl.exe --cd {safe_path} "
+            f"wt.exe new-tab "
+            f"--title {safe_task_id} "
+            f"--tabColor \"{scheme['tab']}\" "
+            f"--colorScheme \"{scheme['name']}\" "
+            f"wsl.exe --cd {safe_path} "
             f"-- bash -lic {shlex.quote(cli_with_prompt)}"
         )
         launch_commands.append(wt_cmd)
@@ -3577,6 +3769,7 @@ def workflow_get_launch_command(
         "ai_host": ai_host,
         "launched_at": datetime.now().isoformat(),
         "worktree_abs_path": worktree_abs_path,
+        "color_scheme": scheme["name"],
     }
     _save_state(task_dir, state)
 
@@ -3586,5 +3779,6 @@ def workflow_get_launch_command(
         "launch_commands": launch_commands,
         "resume_prompt": resume_prompt,
         "worktree_path": worktree_abs_path,
+        "color_scheme": scheme["name"],
         "warnings": warnings,
     }

@@ -96,6 +96,17 @@ from .config_tools import (
     config_get_checkpoint,
     config_get_beads,
 )
+from .orchestration_tools import (
+    crew_parse_args,
+    crew_init_task,
+    crew_apply_config_overrides,
+    crew_detect_optional_agents,
+    crew_get_next_phase,
+    crew_parse_agent_output,
+    crew_get_implementation_action,
+    crew_format_completion,
+    crew_get_resume_state,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1195,6 +1206,15 @@ TOOLS = [
                     "description": "AI host CLI (determines which settings to copy). Default: claude.",
                     "enum": ["claude", "gemini", "copilot"],
                     "default": "claude"
+                },
+                "branch_name": {
+                    "type": "string",
+                    "description": "Explicit branch name. If not provided, derives from linked issue, task description, or task ID."
+                },
+                "recycle": {
+                    "type": "boolean",
+                    "description": "If true, attempt to reuse a recyclable worktree directory instead of creating a fresh one. Falls back to normal creation if none available.",
+                    "default": False
                 }
             },
             "required": []
@@ -1228,6 +1248,11 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Whether to include branch deletion in cleanup commands (default: true)",
                     "default": True
+                },
+                "keep_on_disk": {
+                    "type": "boolean",
+                    "description": "If true, mark worktree as recyclable instead of cleaned. Directory stays on disk for reuse by a future task.",
+                    "default": False
                 }
             },
             "required": []
@@ -1261,6 +1286,175 @@ TOOLS = [
                 }
             },
             "required": []
+        }
+    ),
+    # Orchestration Tools (crew.md extraction)
+    Tool(
+        name="crew_parse_args",
+        description="Parse /crew command arguments into structured format. Returns action, task_description, options dict, and errors.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "raw_args": {
+                    "type": "string",
+                    "description": "Raw argument string from /crew command"
+                }
+            },
+            "required": ["raw_args"]
+        }
+    ),
+    Tool(
+        name="crew_init_task",
+        description="Full task initialization in one call. Loads config, initializes workflow, sets mode, inventories knowledge base, detects optional agents.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_description": {
+                    "type": "string",
+                    "description": "Description of the task"
+                },
+                "options": {
+                    "type": "object",
+                    "description": "Parsed options dict from crew_parse_args (mode, loop_mode, beads, etc.)"
+                },
+                "project_dir": {
+                    "type": "string",
+                    "description": "Optional project directory path"
+                }
+            },
+            "required": ["task_description"]
+        }
+    ),
+    Tool(
+        name="crew_apply_config_overrides",
+        description="Merge CLI option flags into config overrides. Maps --loop-mode, --no-checkpoints, --beads, etc. to config structure.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "description": "Parsed options dict from crew_parse_args"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task ID for context"
+                }
+            },
+            "required": ["options"]
+        }
+    ),
+    Tool(
+        name="crew_detect_optional_agents",
+        description="Detect which optional specialized agents should be enabled based on task description and files. Auto-enables matching agents.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_description": {
+                    "type": "string",
+                    "description": "Description of the task"
+                },
+                "files_affected": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of affected file paths"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task ID to auto-enable phases in workflow state"
+                }
+            },
+            "required": ["task_description"]
+        }
+    ),
+    Tool(
+        name="crew_get_next_phase",
+        description="Determine the next workflow action based on current state and mode. Returns spawn_agent, checkpoint, or complete action with full context.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="crew_parse_agent_output",
+        description="Extract structured data from agent output (docs_needed, review_issues, recommendation, concerns) and update workflow state.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "description": "Agent name that produced the output"
+                },
+                "output_text": {
+                    "type": "string",
+                    "description": "Raw output text from agent"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task ID"
+                }
+            },
+            "required": ["agent", "output_text"]
+        }
+    ),
+    Tool(
+        name="crew_get_implementation_action",
+        description="Get the next implementation loop action: implement_step, verify, retry, escalate, checkpoint, or complete.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier"
+                },
+                "last_verification_passed": {
+                    "type": "boolean",
+                    "description": "Result of last verification run (null if not yet verified)"
+                },
+                "last_error_output": {
+                    "type": "string",
+                    "description": "Error output from last verification"
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="crew_format_completion",
+        description="Generate workflow completion output: cost summary, commit message, worktree cleanup commands, beads commands.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier"
+                },
+                "files_changed": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of files changed during implementation"
+                }
+            },
+            "required": []
+        }
+    ),
+    Tool(
+        name="crew_get_resume_state",
+        description="Load complete resume context for a task: resume point, current phase, progress, context files.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier to resume"
+                }
+            },
+            "required": ["task_id"]
         }
     ),
 ]
@@ -1329,6 +1523,16 @@ TOOL_DISPATCH_TABLE = {
     "workflow_get_worktree_info": workflow_get_worktree_info,
     "workflow_cleanup_worktree": workflow_cleanup_worktree,
     "workflow_get_launch_command": workflow_get_launch_command,
+    # Orchestration tools
+    "crew_parse_args": crew_parse_args,
+    "crew_init_task": crew_init_task,
+    "crew_apply_config_overrides": crew_apply_config_overrides,
+    "crew_detect_optional_agents": crew_detect_optional_agents,
+    "crew_get_next_phase": crew_get_next_phase,
+    "crew_parse_agent_output": crew_parse_agent_output,
+    "crew_get_implementation_action": crew_get_implementation_action,
+    "crew_format_completion": crew_format_completion,
+    "crew_get_resume_state": crew_get_resume_state,
 }
 
 

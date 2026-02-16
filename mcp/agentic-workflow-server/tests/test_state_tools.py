@@ -88,6 +88,7 @@ from agentic_workflow_server.state_tools import (
     workflow_cleanup_worktree,
     workflow_get_launch_command,
     _build_resume_prompt,
+    _find_recyclable_worktree,
     list_tasks,
     # Helpers
     get_tasks_dir,
@@ -1328,9 +1329,12 @@ class TestAutoLaunch:
         )
 
         assert result["success"] is True
-        assert len(result["launch_commands"]) == 1
+        assert len(result["launch_commands"]) == 2
         assert "tmux new-window" in result["launch_commands"][0]
         assert "TASK_TEST_AL_001" in result["launch_commands"][0]
+        assert "tmux set-option" in result["launch_commands"][1]
+        assert "window-style" in result["launch_commands"][1]
+        assert result["color_scheme"] is not None
         assert result["warnings"] == []
 
     def test_windows_terminal_launch(self, clean_tasks_dir):
@@ -1345,9 +1349,13 @@ class TestAutoLaunch:
         assert result["success"] is True
         assert len(result["launch_commands"]) == 1
         cmd = result["launch_commands"][0]
-        assert "wt.exe new-tab wsl.exe --cd" in cmd
+        assert "wt.exe new-tab" in cmd
+        assert "--tabColor" in cmd
+        assert "--colorScheme" in cmd
+        assert "wsl.exe --cd" in cmd
         assert "bash -lic" in cmd
         assert "--prompt" not in cmd
+        assert result["color_scheme"] is not None
         assert result["warnings"] == []
 
     def test_macos_launch(self, clean_tasks_dir):
@@ -1610,6 +1618,145 @@ class TestListTasksWorktree:
         assert lt_tasks["TASK_TEST_LT_005"]["worktree"] is None
         assert lt_tasks["TASK_TEST_LT_006"]["worktree"]["status"] == "active"
         assert lt_tasks["TASK_TEST_LT_007"]["worktree"]["status"] == "cleaned"
+
+
+class TestWorktreeRecycling:
+    """Test worktree recycling (keep_on_disk + recycle)."""
+
+    def test_find_recyclable_worktree_found(self, clean_tasks_dir, tmp_path):
+        """Recyclable worktree with existing directory is found."""
+        workflow_initialize(task_id="TASK_TEST_RC_001")
+        workflow_create_worktree(task_id="TASK_TEST_RC_001", base_path=str(tmp_path))
+        # Create the worktree directory to simulate it existing on disk
+        wt_dir = tmp_path / "TASK_TEST_RC_001"
+        wt_dir.mkdir(exist_ok=True)
+        # Mark as recyclable via cleanup with keep_on_disk
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_001", keep_on_disk=True)
+
+        result = _find_recyclable_worktree()
+        assert result is not None
+        task_dir, state = result
+        assert state.get("task_id") == "TASK_TEST_RC_001"
+        assert state["worktree"]["status"] == "recyclable"
+
+    def test_find_recyclable_worktree_dir_missing(self, clean_tasks_dir):
+        """Recyclable worktree whose directory was removed returns None."""
+        workflow_initialize(task_id="TASK_TEST_RC_002")
+        workflow_create_worktree(task_id="TASK_TEST_RC_002", base_path="/nonexistent/path")
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_002", keep_on_disk=True)
+
+        result = _find_recyclable_worktree()
+        assert result is None
+
+    def test_find_recyclable_worktree_none_available(self, clean_tasks_dir):
+        """No recyclable worktrees available returns None."""
+        workflow_initialize(task_id="TASK_TEST_RC_003")
+        workflow_create_worktree(task_id="TASK_TEST_RC_003")
+        # Normal cleanup (not keep_on_disk) → status=cleaned, not recyclable
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_003")
+
+        result = _find_recyclable_worktree()
+        assert result is None
+
+    def test_create_worktree_recycle_success(self, clean_tasks_dir, tmp_path):
+        """recycle=True with a candidate returns move+checkout commands."""
+        # Set up donor
+        workflow_initialize(task_id="TASK_TEST_RC_004")
+        workflow_create_worktree(task_id="TASK_TEST_RC_004", base_path=str(tmp_path))
+        wt_dir = tmp_path / "TASK_TEST_RC_004"
+        wt_dir.mkdir(exist_ok=True)
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_004", keep_on_disk=True)
+
+        # Create new task and recycle
+        workflow_initialize(task_id="TASK_TEST_RC_005")
+        result = workflow_create_worktree(
+            task_id="TASK_TEST_RC_005",
+            base_path=str(tmp_path),
+            recycle=True
+        )
+
+        assert result["success"] is True
+        assert result.get("recycled_from") == "TASK_TEST_RC_004"
+        assert "git worktree move" in result["git_commands"][0]
+        assert "checkout" in result["git_commands"][1]
+        assert result["worktree"]["status"] == "active"
+        assert result["worktree"].get("recycled_from") == "TASK_TEST_RC_004"
+
+    def test_create_worktree_recycle_fallback(self, clean_tasks_dir):
+        """recycle=True with no candidate falls back to normal creation."""
+        workflow_initialize(task_id="TASK_TEST_RC_006")
+        result = workflow_create_worktree(
+            task_id="TASK_TEST_RC_006",
+            recycle=True
+        )
+
+        assert result["success"] is True
+        assert result.get("recycled_from") is None
+        assert "git worktree add" in result["git_commands"][0]
+
+    def test_create_worktree_recycle_updates_donor(self, clean_tasks_dir, tmp_path):
+        """Donor state gets updated to 'recycled' after recycling."""
+        workflow_initialize(task_id="TASK_TEST_RC_007")
+        workflow_create_worktree(task_id="TASK_TEST_RC_007", base_path=str(tmp_path))
+        wt_dir = tmp_path / "TASK_TEST_RC_007"
+        wt_dir.mkdir(exist_ok=True)
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_007", keep_on_disk=True)
+
+        workflow_initialize(task_id="TASK_TEST_RC_008")
+        workflow_create_worktree(
+            task_id="TASK_TEST_RC_008",
+            base_path=str(tmp_path),
+            recycle=True
+        )
+
+        # Check donor state
+        donor_info = workflow_get_worktree_info(task_id="TASK_TEST_RC_007")
+        assert donor_info["worktree"]["status"] == "recycled"
+        assert donor_info["worktree"].get("recycled_to") == "TASK_TEST_RC_008"
+
+    def test_cleanup_worktree_keep_on_disk(self, clean_tasks_dir):
+        """keep_on_disk=True sets status to recyclable and omits remove command."""
+        workflow_initialize(task_id="TASK_TEST_RC_009")
+        workflow_create_worktree(task_id="TASK_TEST_RC_009")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_009", keep_on_disk=True)
+
+        assert result["success"] is True
+        assert result["worktree"]["status"] == "recyclable"
+        # No git worktree remove command
+        for cmd in result["git_commands"]:
+            assert "git worktree remove" not in cmd
+        assert "recyclable" in result["message"]
+
+    def test_cleanup_worktree_normal_unchanged(self, clean_tasks_dir):
+        """Normal cleanup (keep_on_disk=False) still works as before."""
+        workflow_initialize(task_id="TASK_TEST_RC_010")
+        workflow_create_worktree(task_id="TASK_TEST_RC_010")
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_010", keep_on_disk=False)
+
+        assert result["success"] is True
+        assert result["worktree"]["status"] == "cleaned"
+        assert any("git worktree remove" in cmd for cmd in result["git_commands"])
+
+    def test_cleanup_rejects_recyclable(self, clean_tasks_dir):
+        """Can't clean up an already recyclable worktree."""
+        workflow_initialize(task_id="TASK_TEST_RC_011")
+        workflow_create_worktree(task_id="TASK_TEST_RC_011")
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_011", keep_on_disk=True)
+        result = workflow_cleanup_worktree(task_id="TASK_TEST_RC_011")
+
+        assert result["success"] is False
+        assert "already cleaned" in result["error"]
+
+    def test_list_tasks_recyclable_worktree(self, clean_tasks_dir):
+        """list_tasks shows recyclable status and action."""
+        workflow_initialize(task_id="TASK_TEST_RC_012")
+        workflow_create_worktree(task_id="TASK_TEST_RC_012")
+        workflow_cleanup_worktree(task_id="TASK_TEST_RC_012", keep_on_disk=True)
+
+        tasks = list_tasks()
+        task = next(t for t in tasks if t["task_id"] == "TASK_TEST_RC_012")
+        assert task["worktree"]["status"] == "recyclable"
+        assert task["worktree"]["action"] == "recyclable"
 
 
 if __name__ == "__main__":

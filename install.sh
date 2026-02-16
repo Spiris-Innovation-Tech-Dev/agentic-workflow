@@ -224,6 +224,71 @@ else
   echo "  ✓ Created settings.json with hooks"
 fi
 
+# Install Windows Terminal color schemes (WSL only)
+echo ""
+echo "Installing terminal color schemes..."
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  # Running in WSL — look for Windows Terminal settings.json
+  WT_SETTINGS=""
+  for CANDIDATE in \
+    "/mnt/c/Users/$(cmd.exe /C 'echo %USERNAME%' 2>/dev/null | tr -d '\r')/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json" \
+    "/mnt/c/Users/$(cmd.exe /C 'echo %USERNAME%' 2>/dev/null | tr -d '\r')/AppData/Local/Packages/Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe/LocalState/settings.json" \
+    "/mnt/c/Users/$(whoami)/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"; do
+    if [ -f "$CANDIDATE" ]; then
+      WT_SETTINGS="$CANDIDATE"
+      break
+    fi
+  done
+
+  if [ -n "$WT_SETTINGS" ]; then
+    python3 << PYEOF
+import json, sys, os
+
+schemes_file = os.path.join("$SCRIPT_DIR", "config", "terminal-colorschemes.json")
+wt_settings_file = """$WT_SETTINGS"""
+
+try:
+    with open(schemes_file) as f:
+        crew_schemes = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    print(f"  ⚠ Could not read color schemes: {e}")
+    sys.exit(0)
+
+try:
+    with open(wt_settings_file) as f:
+        # Strip JSON comments (// style) that WT settings may contain
+        lines = f.readlines()
+        clean_lines = [l for l in lines if not l.strip().startswith("//")]
+        settings = json.loads("".join(clean_lines))
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    print(f"  ⚠ Could not read WT settings.json: {e}")
+    sys.exit(0)
+
+if "schemes" not in settings:
+    settings["schemes"] = []
+
+existing_names = {s.get("name") for s in settings["schemes"]}
+added = 0
+for scheme in crew_schemes:
+    if scheme["name"] not in existing_names:
+        settings["schemes"].append(scheme)
+        added += 1
+
+if added > 0:
+    with open(wt_settings_file, "w") as f:
+        json.dump(settings, f, indent=4)
+        f.write("\n")
+    print(f"  ✓ Added {added} Crew color schemes to Windows Terminal")
+else:
+    print("  ✓ Crew color schemes already present in Windows Terminal")
+PYEOF
+  else
+    echo "  ⚠ Windows Terminal settings.json not found, skipping"
+  fi
+else
+  echo "  - Not running in WSL, skipping Windows Terminal scheme injection"
+fi
+
 echo ""
 echo "========================================"
 echo "  Installation complete! (v${VERSION})"
