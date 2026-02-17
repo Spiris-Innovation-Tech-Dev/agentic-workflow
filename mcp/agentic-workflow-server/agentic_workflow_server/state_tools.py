@@ -18,6 +18,10 @@ from typing import Any, Optional
 from filelock import FileLock
 
 
+# Resolve script paths at import time (immune to Path mocking in tests)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_FIX_WORKTREE_PATHS_SCRIPT = _REPO_ROOT / "scripts" / "fix-worktree-paths.py"
+
 PHASE_ORDER = [
     "architect",
     "developer",
@@ -3512,7 +3516,7 @@ def workflow_create_worktree(
     fix_paths_commands: list[str] = []
     if wsl and resolved_abs.startswith("/mnt/"):
         fix_paths_commands = [
-            f"python3 scripts/fix-worktree-paths.py {resolved_task_id}"
+            f"python3 {_FIX_WORKTREE_PATHS_SCRIPT} {resolved_task_id}"
         ]
 
     return {

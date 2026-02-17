@@ -1947,7 +1947,10 @@ class TestFixPathsCommands:
             result = workflow_create_worktree(task_id="TASK_TEST_FP_002")
         cmds = result["fix_paths_commands"]
         assert len(cmds) == 1
-        assert cmds[0] == "python3 scripts/fix-worktree-paths.py TASK_TEST_FP_002"
+        assert "fix-worktree-paths.py" in cmds[0]
+        assert "TASK_TEST_FP_002" in cmds[0]
+        # Script path should be absolute (works from any CWD)
+        assert cmds[0].startswith("python3 /")
 
     def test_non_wsl_has_empty_fix_paths(self, clean_tasks_dir):
         """Non-WSL worktree returns empty fix_paths_commands."""

@@ -30,7 +30,7 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
    - `prompt` → ask user: "Reuse an existing finished worktree directory? (yes/no)" → set `<recycle>` accordingly
 8. **Create worktree**: Call `workflow_create_worktree(task_id="TASK_XXX", base_branch="<current branch from step 1>", ai_host="<ai_host>", recycle=<recycle>)` MCP tool — this branches from your current branch, not main.
    If the response contains `recycled_from`, this is a recycled worktree — the git commands will use `git worktree move` + `git checkout` instead of `git worktree add`.
-   If `warnings` is non-empty, print each warning. If a warning mentions WSL performance, ask user: "Continue anyway? (yes/no)". If no, abort.
+   If `warnings` is non-empty, print each warning as a note (do NOT prompt or ask for confirmation — if the main repo is on `/mnt/`, the worktree naturally goes there too).
 9. **Execute git commands**: Run the git commands returned by the tool.
    - If `wsl_use_native_commands` is `true` in the MCP response (WSL + `/mnt/` path):
      Run git commands via PowerShell for native NTFS performance. For each git command:

@@ -8,6 +8,8 @@ A multi-agent development workflow that orchestrates specialized AI agents throu
 
 **Supports Claude Code, GitHub Copilot CLI, and Gemini CLI.**
 
+> **New here?** Check out the [Visual Overview](docs/overview.md) -- a jargon-free guide with diagrams, perfect for managers, team leads, and anyone curious about how it works.
+
 ## Why Agentic Workflow?
 
 Complex development tasks require multiple perspectives: architecture considerations, detailed planning, security review, edge case analysis, and careful implementation. Managing this manually with AI means constant context switching and oversight.
