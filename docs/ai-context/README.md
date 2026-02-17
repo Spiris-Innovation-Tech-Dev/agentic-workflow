@@ -99,7 +99,10 @@ The worktree branches from the current branch and `.tasks/` resolves back to the
 
 **Important behaviors:**
 - **LF enforcement**: The `.git` pointer file and `gitdir` file are written with `printf` to guarantee LF line endings (CRLF breaks git on Windows/WSL).
-- **Dependency installation**: After creating the worktree, the agent auto-detects lock files (`package-lock.json`, `yarn.lock`, `requirements.txt`, etc.) and installs dependencies so the worktree is ready to use.
+- **Dependency installation**: Controlled by `worktree.install_deps` (`auto` | `never`). When `auto` (default), the agent auto-detects lock files (`package-lock.json`, `yarn.lock`, `requirements.txt`, etc.) and installs dependencies. Set to `never` to skip.
+- **Copy settings**: `worktree.copy_settings` (default `true`) copies host CLI settings (e.g., `.claude/settings.local.json`) into the worktree so the new session inherits configuration.
+- **Jira integration**: Config-driven via `worktree.jira`. `auto_assign` (`auto` | `prompt` | `never`) assigns the current user on worktree creation. `transitions` defines lifecycle hooks: `on_create` (worktree created), `on_complete` (workflow done), `on_cleanup` (worktree removed). Each hook has `to` (target status), `mode` (`auto` | `prompt` | `never`), and `only_from` (list of statuses — skip transition if current status isn't in this list, empty = always try). All degrade gracefully if the Jira MCP tool is unavailable.
+- **Post-setup commands**: `worktree.post_setup_commands` (list of strings) runs arbitrary shell commands after the worktree is fully set up (after deps install). Commands support placeholders: `{worktree_path}`, `{task_id}`, `{branch_name}`, `{main_repo_path}`, `{jira_issue}`.
 - **Task state path**: The final output includes the absolute path to `.tasks/TASK_XXX/` in the main repo and a prompt template that tells the new AI session where state lives. MCP tools resolve this automatically, but direct file reads should use the absolute path.
 
 See the MCP server source at `mcp/agentic-workflow-server/` for full API documentation.

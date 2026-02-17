@@ -67,9 +67,32 @@ DEFAULT_CONFIG = {
         "cleanup_on_complete": "prompt",
         "auto_launch": "prompt",
         "ai_host": "auto",
+        "copy_settings": True,
         "recycle": "prompt",
         "sync_before_create": "prompt",
         "wsl_native_path": "",
+        "install_deps": "auto",
+        "jira": {
+            "auto_assign": "never",
+            "transitions": {
+                "on_create": {
+                    "to": "",
+                    "mode": "auto",
+                    "only_from": [],
+                },
+                "on_complete": {
+                    "to": "",
+                    "mode": "auto",
+                    "only_from": [],
+                },
+                "on_cleanup": {
+                    "to": "",
+                    "mode": "prompt",
+                    "only_from": [],
+                },
+            },
+        },
+        "post_setup_commands": [],
     },
     "auto_actions": {
         "run_tests": True,

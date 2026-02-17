@@ -641,3 +641,24 @@ worktree:
   recycle: prompt                # prompt | auto | never — reuse finished worktree dirs instead of creating new ones
   sync_before_create: prompt     # prompt | auto | never — fetch and check if base branch is behind remote
   wsl_native_path: ""            # WSL only: override base_path to a /home/ path for faster I/O (e.g., "/home/{user}/{repo_name}-worktrees")
+  install_deps: auto             # auto | never — auto-detect and install project dependencies
+  jira:
+    auto_assign: never           # auto | prompt | never
+    # Lifecycle transitions — each hook: to (status name), mode (auto|prompt|never), only_from (list)
+    # only_from: only transition if current Jira status is in this list (empty = always try)
+    transitions:
+      on_create:                 # Fires when worktree is created
+        to: ""                   # e.g., "In Progress"
+        mode: auto               # auto | prompt | never
+        only_from: []
+      on_complete:               # Fires when workflow completes (before cleanup)
+        to: ""                   # e.g., "In Review"
+        mode: auto
+        only_from: []
+      on_cleanup:                # Fires when worktree is cleaned up
+        to: ""                   # e.g., "Test"
+        mode: prompt             # prompt by default — cleanup timing is ambiguous
+        only_from: []            # e.g., ["In Review"] — prevents Done→Test regression
+  # Commands to run after worktree is fully set up (after deps installed), CWD = worktree dir
+  # Supports placeholders: {worktree_path}, {task_id}, {branch_name}, {main_repo_path}, {jira_issue}
+  post_setup_commands: []

@@ -155,6 +155,23 @@ Cost Summary:
 
 Ask human to approve commit. Record concern outcomes if any were raised.
 
+**Jira transitions** (if a Jira issue key is linked to this task):
+Read `config_get_effective()` → `worktree.jira.transitions`.
+
+1. **on_complete** — fires now, after workflow completes:
+   Execute the Jira transition procedure (see below) with `transitions.on_complete`.
+
+2. **on_cleanup** — fires when worktree cleanup runs (if `cleanup_on_complete` triggers cleanup):
+   Execute the Jira transition procedure with `transitions.on_cleanup`.
+
+**Jira transition procedure** (shared by all hooks):
+   - Read the hook config → `{to, mode, only_from}`
+   - If `to` is empty or `mode` is `never` → skip
+   - If `mode` is `prompt` → ask user "Transition <issue> to '<to>'?", if no → skip
+   - If `only_from` is non-empty: get current issue status via `jira_issues_get`. If current status is NOT in `only_from` → skip with message "Issue is '<current_status>', skipping transition to '<to>'"
+   - List available transitions via `jira_transitions_list`, find match (case-insensitive), execute via `jira_issues_transition`
+   - Warn-and-continue on any failure — Jira integration is non-blocking
+
 ## Single Agent Consultation
 
 When action is "ask":

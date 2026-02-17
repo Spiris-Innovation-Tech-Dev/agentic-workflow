@@ -48,7 +48,25 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
    If any command fails, print a warning but continue.
 11. **Fix paths for WSL/Windows compatibility**: Run the `fix_paths_commands` returned by `workflow_create_worktree` (if any). This runs `python3 scripts/fix-worktree-paths.py TASK_XXX` which converts absolute WSL paths in the worktree's `.git` file and the main repo's `.git/worktrees/TASK_XXX/gitdir` to relative paths so Windows tools (Visual Studio, PowerShell git) can read them. The script computes the correct relative paths, writes files with LF line endings, and verifies the results — do NOT compute or fix paths manually.
    - If `fix_paths_commands` is empty (non-WSL or non-`/mnt/` path), skip this step.
-12. **Install dependencies in worktree** (skip for recycled worktrees — dependencies already installed): Detect and install project dependencies so the worktree is ready to use. Check for these files **in the worktree directory** and run the first match:
+12. **Jira operations** (optional — only when args contain a Jira issue key like `SAD-123`):
+   1. Read `config_get_effective()` → `worktree.jira`
+   2. **Assign** — based on `auto_assign`:
+      - `never` → skip assignment
+      - `auto` → get current user via `jira_users_current`, assign via `jira_issues_assign`
+      - `prompt` → ask user "Assign this Jira issue to you? (yes/no)", if yes → assign
+   3. **Transition** — execute the `transitions.on_create` hook using the Jira transition procedure:
+      - Read `transitions.on_create` → `{to, mode, only_from}`
+      - If `to` is empty or `mode` is `never` → skip
+      - If `mode` is `prompt` → ask user "Transition issue to '<to>'? (yes/no)", if no → skip
+      - If `only_from` is non-empty: get current issue status via `jira_issues_get`. If current status is NOT in `only_from` → skip with message "Issue is '<current_status>', skipping transition"
+      - List available transitions via `jira_transitions_list` MCP tool
+      - Find the transition whose name matches `to` (case-insensitive)
+      - Execute via `jira_issues_transition` MCP tool
+      - If no matching transition found, warn and continue
+   4. If both `auto_assign == "never"` and `transitions.on_create.to` is empty → skip this step entirely
+   5. If any Jira operation fails (MCP server unavailable, auth error, etc.), print a warning and continue — Jira integration is non-blocking
+13. **Install dependencies in worktree**: Check `config_get_effective()` → `worktree.install_deps`. If `never`, skip this step entirely. Also skip for recycled worktrees (dependencies already installed).
+   Detect and install project dependencies so the worktree is ready to use. Check for these files **in the worktree directory** and run the first match:
    - If `wsl_use_native_commands` is `true` in the MCP response (WSL + `/mnt/` path):
      Convert worktree path to Windows: `wslpath -w <worktree_path>`
      Run via PowerShell for each detected package manager:
@@ -69,7 +87,19 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
      - `Cargo.lock` → `cargo fetch` (in worktree dir)
    - If none found, skip this step.
    - If the install command fails, print a warning but continue — the user can fix it manually.
-13. **Print result** (use the exact format below, substituting actual values):
+14. **Run post-setup commands** (optional):
+   1. Read `config_get_effective()` → `worktree.post_setup_commands`
+   2. If empty list → skip this step
+   3. For each command, substitute placeholders:
+      - `{worktree_path}` → absolute path to the worktree directory
+      - `{task_id}` → e.g., `TASK_017`
+      - `{branch_name}` → e.g., `crew/sad-710-description`
+      - `{main_repo_path}` → absolute path to the main repo
+      - `{jira_issue}` → e.g., `SAD-123` (empty string if no Jira issue linked)
+   4. Run each command in order from the **worktree directory** as CWD
+   5. If `wsl_use_native_commands` is `true` → run via PowerShell (convert worktree path to Windows)
+   6. If any command fails, print a warning but continue — post-setup commands are non-blocking
+15. **Print result** (use the exact format below, substituting actual values):
 
 ```
 Worktree ready:
@@ -79,7 +109,9 @@ Worktree ready:
   Recycled:   yes, from <donor_task_id>  |  no (fresh)
   Task state: <main_repo_absolute_path>/.tasks/TASK_XXX/
   Setup:      .tasks/ symlinked, settings copied (or "settings copy skipped")
-  Deps:       installed | skipped (recycled) | skipped | failed (reason)
+  Jira:       assigned + transitioned to "In Progress" | skipped | failed (reason)
+  Deps:       installed | skipped (recycled) | skipped (config) | skipped | failed (reason)
+  Post-setup: N commands ran | skipped (none configured)
 
 To start the workflow, open a new terminal and run:
 
@@ -98,9 +130,9 @@ Then start your AI assistant (claude / gemini / copilot) and give it this prompt
   @crew-resume TASK_XXX          ← for Gemini / Copilot
 ```
 
-14. **Auto-launch worktree session** (optional):
+16. **Auto-launch worktree session** (optional):
    Check config via `config_get_effective()` → `worktree.auto_launch`:
-   - `never` → skip to Step 15
+   - `never` → skip to Step 17
    - `prompt` → ask user: "Launch a new terminal session in the worktree? (yes/no)"
    - `auto` or user said yes → proceed with detection
 
@@ -118,9 +150,9 @@ Then start your AI assistant (claude / gemini / copilot) and give it this prompt
 
    **Execute** the returned `launch_commands` via bash.
 
-   Print success/failure status. If the returned `warnings` mention that the CLI doesn't support auto-prompts (e.g., Copilot), print the resume prompt text so the user can paste it manually. On failure, remind user of manual instructions from Step 13.
+   Print success/failure status. If the returned `warnings` mention that the CLI doesn't support auto-prompts (e.g., Copilot), print the resume prompt text so the user can paste it manually. On failure, remind user of manual instructions from Step 15.
 
-15. **STOP** — do nothing else. Do not start agents, do not fetch issues, do not continue.
+17. **STOP** — do nothing else. Do not start agents, do not fetch issues, do not continue.
 
 ### Example
 

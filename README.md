@@ -33,7 +33,7 @@ Complex development tasks require multiple perspectives: architecture considerat
 - **Gemini + Repomix integration** - Large-context codebase analysis for research phases
 - **State management** - Resume interrupted workflows from any point
 - **Model resilience** - Automatic failover with exponential backoff across model fallback chain
-- **Git worktree support** - Isolated parallel `/crew` workflows via `--worktree`
+- **Git worktree support** - Isolated parallel `/crew` workflows with Jira integration and custom post-setup commands
 - **Agent teams** - Experimental parallel agent execution via Claude Code agent teams
 - **Beads integration** - Optional issue tracking integration
 - **Technical documentation** - Automatic AI-context documentation updates
@@ -621,6 +621,24 @@ worktree:
   cleanup_on_complete: prompt  # prompt | auto | never
   auto_launch: prompt          # prompt | auto | never
   ai_host: auto                # auto | claude | gemini | copilot
+  copy_settings: true          # Copy host CLI settings to worktree
+  install_deps: auto           # auto | never — auto-detect and install dependencies
+  jira:
+    auto_assign: never         # auto | prompt | never
+    transitions:
+      on_create:               # Fires when worktree is created
+        to: ""                 # e.g., "In Progress"
+        mode: auto
+        only_from: []
+      on_complete:             # Fires when workflow completes
+        to: ""                 # e.g., "In Review"
+        mode: auto
+        only_from: []
+      on_cleanup:              # Fires when worktree is cleaned up
+        to: ""                 # e.g., "Test"
+        mode: prompt
+        only_from: []          # e.g., ["In Review"] — prevents Done→Test regression
+  post_setup_commands: []      # Shell commands run after deps install
 ```
 
 When `--worktree` is passed, the orchestrator creates an isolated git worktree for the task. Each worktree gets its own branch (`crew/task-xxx`) and working directory, allowing multiple `/crew` sessions to run in parallel without file conflicts. The `.tasks/` directory is shared — worktree agents resolve back to the main repo's `.tasks/` via `git rev-parse --git-common-dir`.
@@ -652,6 +670,38 @@ The agent auto-detects the terminal environment (`$TMUX`, `wt.exe`, macOS Termin
 - Gemini and Copilot use global settings — no copy needed
 
 Set `copy_settings: false` in the `worktree` config to disable settings copying (the `.tasks/` symlink is always created).
+
+Set `install_deps: never` to skip automatic dependency installation — useful when your ecosystem isn't auto-detected (e.g., .NET, C++) or when you prefer `post_setup_commands` instead.
+
+**Jira integration**: When a Jira issue key is passed to `/crew-worktree` (e.g., `/crew-worktree SAD-289`), the agent can automatically assign and transition the issue. Configure via `worktree.jira`:
+
+- **`auto_assign`** (`auto` | `prompt` | `never`) — assign the issue to the current Jira user
+- **`transitions`** — lifecycle hooks that fire at different stages:
+
+| Hook | Fires when | Typical target |
+|------|-----------|----------------|
+| `on_create` | Worktree is created | "In Progress" |
+| `on_complete` | Workflow finishes | "In Review" |
+| `on_cleanup` | Worktree is cleaned up | "Test" |
+
+Each hook has three fields:
+- `to` — target Jira status (empty = skip)
+- `mode` — `auto` | `prompt` | `never`
+- `only_from` — list of statuses; only transition if the issue's current status is in this list (empty = always try). This prevents backward transitions — e.g., if QA already moved the issue to "Done", cleanup won't regress it to "Test".
+
+All Jira operations degrade gracefully — if the Jira MCP server is unavailable, the agent warns and continues.
+
+**Post-setup commands**: Run arbitrary shell commands after the worktree is fully set up (after dependency installation). Configure via `worktree.post_setup_commands`:
+
+```yaml
+worktree:
+  post_setup_commands:
+    - echo "Setting up {task_id} in {worktree_path}"
+    - dotnet restore
+    - npm run prepare
+```
+
+Supported placeholders: `{worktree_path}`, `{task_id}`, `{branch_name}`, `{main_repo_path}`, `{jira_issue}`. Commands run in order from the worktree directory. Failures warn but don't block.
 
 **Example flow:**
 
