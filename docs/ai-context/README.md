@@ -42,6 +42,11 @@ agentic-workflow/
 │   ├── crew.md                 # Main /crew command (orchestrator)
 │   ├── crew-config.md          # /crew-config command
 │   └── crew-resume.md          # /crew-resume command
+├── crew-board/                 # Norton Commander-style TUI dashboard (Rust)
+│   ├── Cargo.toml              # Rust project manifest (ratatui + crossterm)
+│   ├── CLAUDE.md               # Agent instructions for this sub-project
+│   ├── README.md               # User docs (install, usage, keybindings)
+│   └── src/                    # TUI source: app, data layer, UI views, launcher
 ├── config/
 │   ├── workflow-config.yaml    # Reference configuration with all settings
 │   ├── terminal-colorschemes.json  # Color schemes for worktree tabs
