@@ -5,6 +5,7 @@ edition = "2021"
 description = "Norton Commander-style TUI dashboard for agentic-workflow tasks"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/Spiris-Innovation-Tech-Dev/agentic-workflow"
 
 [[bin]]
 name = "crew-board"

@@ -20,6 +20,7 @@ use std::time::Duration;
 #[derive(Parser, Debug)]
 #[command(
     name = "crew-board",
+    version,
     about = "Cross-project task dashboard for agentic-workflow"
 )]
 struct Cli {

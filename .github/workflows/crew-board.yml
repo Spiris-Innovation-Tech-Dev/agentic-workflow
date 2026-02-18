@@ -1,0 +1,192 @@
+name: crew-board CI and Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'crew-board/**'
+      - '.github/workflows/crew-board.yml'
+  pull_request:
+    paths:
+      - 'crew-board/**'
+      - '.github/workflows/crew-board.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds (using musl for static linking via cross)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
+          # Windows builds
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            use_cross: false
+          # macOS builds
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            use_cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use_cross: false
+
+    defaults:
+      run:
+        working-directory: crew-board
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+
+      - name: Install Cross
+        if: matrix.use_cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release --target '${{ matrix.target }}'
+
+      - name: Package binaries
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            BIN="crew-board.exe"
+            EXT="zip"
+          else
+            BIN="crew-board"
+            EXT="tar.gz"
+          fi
+
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl) PLATFORM="linux-amd64" ;;
+            aarch64-unknown-linux-musl) PLATFORM="linux-arm64" ;;
+            x86_64-pc-windows-msvc) PLATFORM="windows-amd64" ;;
+            aarch64-pc-windows-msvc) PLATFORM="windows-arm64" ;;
+            x86_64-apple-darwin) PLATFORM="macos-amd64" ;;
+            aarch64-apple-darwin) PLATFORM="macos-arm64" ;;
+          esac
+
+          if [ "$EXT" == "zip" ]; then
+            7z a ../../../crew-board-${PLATFORM}.zip $BIN
+          else
+            tar -czf ../../../crew-board-${PLATFORM}.tar.gz $BIN
+          fi
+
+          cd ../../../
+          echo "ASSET=crew-board-${PLATFORM}.${EXT}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crew-board-${{ matrix.target }}
+          path: crew-board/${{ env.ASSET }}
+          if-no-files-found: error
+
+  create_release:
+    name: Create Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          # Read version from Cargo.toml
+          VERSION=$(grep '^version = ' crew-board/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "crew-board version: ${VERSION}"
+
+      - name: Check if release exists
+        id: check_release
+        shell: bash
+        run: |
+          TAG="crew-board-v${{ steps.version.outputs.version }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}")
+          if [ "$STATUS" == "200" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all release assets
+        if: steps.check_release.outputs.exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded files
+        if: steps.check_release.outputs.exists == 'false'
+        run: ls -R artifacts
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: crew-board-v${{ steps.version.outputs.version }}
+          name: crew-board v${{ steps.version.outputs.version }}
+          files: artifacts/*/*
+          generate_release_notes: true
+          body: |
+            ## crew-board v${{ steps.version.outputs.version }}
+
+            Cross-project task dashboard for agentic-workflow.
+
+            ### Installation
+            Download the binary for your platform, extract, and place on PATH.
+
+            | Platform | File |
+            |----------|------|
+            | Linux x86_64 | `crew-board-linux-amd64.tar.gz` |
+            | Linux ARM64 | `crew-board-linux-arm64.tar.gz` |
+            | Windows x86_64 | `crew-board-windows-amd64.zip` |
+            | Windows ARM64 | `crew-board-windows-arm64.zip` |
+            | macOS Intel | `crew-board-macos-amd64.tar.gz` |
+            | macOS Apple Silicon | `crew-board-macos-arm64.tar.gz` |
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
