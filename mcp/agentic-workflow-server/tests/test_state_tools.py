@@ -1536,6 +1536,129 @@ class TestAutoLaunch:
         assert "/crew resume" not in result["resume_prompt"]
 
 
+class TestLaunchMode:
+    """Test terminal_launch_mode setting (window vs tab)."""
+
+    def _setup_worktree_task(self, clean_tasks_dir, task_id):
+        workflow_initialize(task_id=task_id)
+        workflow_create_worktree(task_id=task_id)
+
+    def test_windows_terminal_window_mode(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_001")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_001",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="window",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "wt.exe new-window" in cmd
+        assert "wt.exe new-tab" not in cmd
+        assert "--tabColor" not in cmd
+        assert "--colorScheme" in cmd
+
+    def test_windows_terminal_tab_mode(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_002")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_002",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="tab",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "wt.exe new-tab" in cmd
+        assert "--tabColor" in cmd
+
+    def test_windows_terminal_auto_defaults_to_tab(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_003")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_003",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="auto",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "wt.exe new-tab" in cmd
+
+    def test_tmux_ignores_tab_mode(self, clean_tasks_dir):
+        """tmux always uses new-window regardless of launch_mode."""
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_004")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_004",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="tab",
+        )
+
+        assert result["success"] is True
+        assert "tmux new-window" in result["launch_commands"][0]
+
+    def test_tmux_auto_defaults_to_window(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_005")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_005",
+            terminal_env="tmux",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="auto",
+        )
+
+        assert result["success"] is True
+        assert "tmux new-window" in result["launch_commands"][0]
+
+    def test_macos_ignores_tab_mode(self, clean_tasks_dir):
+        """macOS Terminal always opens a window regardless of launch_mode."""
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_006")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_006",
+            terminal_env="macos",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="tab",
+        )
+
+        assert result["success"] is True
+        assert "osascript" in result["launch_commands"][0]
+
+    def test_launch_mode_recorded_in_metadata(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_007")
+        workflow_get_launch_command(
+            task_id="TASK_TEST_LM_007",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="window",
+        )
+
+        info = workflow_get_worktree_info(task_id="TASK_TEST_LM_007")
+        assert info["worktree"]["launch"]["launch_mode"] == "window"
+
+    def test_invalid_launch_mode_falls_back_to_auto(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_LM_008")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_LM_008",
+            terminal_env="windows_terminal",
+            ai_host="claude",
+            main_repo_path="/home/user/myrepo",
+            launch_mode="invalid",
+        )
+
+        assert result["success"] is True
+        # Should fall back to auto → tab for windows_terminal
+        cmd = result["launch_commands"][0]
+        assert "wt.exe new-tab" in cmd
+
+
 class TestBuildResumePrompt:
     """Unit tests for _build_resume_prompt helper."""
 

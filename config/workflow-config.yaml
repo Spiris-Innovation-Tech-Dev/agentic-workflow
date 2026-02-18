@@ -636,6 +636,7 @@ worktree:
   branch_prefix: "crew/"
   cleanup_on_complete: prompt  # prompt | auto | never
   auto_launch: prompt          # prompt | auto | never
+  terminal_launch_mode: auto   # auto | window | tab — auto uses platform default (tmux→window, WT→tab, macOS→window)
   ai_host: auto                # auto | claude | gemini | copilot
   copy_settings: true            # Copy host CLI settings (e.g., .claude/settings.local.json) to worktree
   recycle: prompt                # prompt | auto | never — reuse finished worktree dirs instead of creating new ones

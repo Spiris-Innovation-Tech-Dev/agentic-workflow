@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
         "branch_prefix": "crew/",
         "cleanup_on_complete": "prompt",
         "auto_launch": "prompt",
+        "terminal_launch_mode": "auto",
         "ai_host": "auto",
         "copy_settings": True,
         "recycle": "prompt",
