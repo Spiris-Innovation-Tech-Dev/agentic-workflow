@@ -1,3 +1,5 @@
+# Force LF everywhere (WSL + Windows consistency)
+* text=auto eol=lf
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
