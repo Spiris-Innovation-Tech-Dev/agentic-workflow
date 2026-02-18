@@ -72,6 +72,11 @@ def read_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _substitute_platform(content: str, platform: str) -> str:
+    """Replace {__platform__} placeholder with the actual platform name."""
+    return content.replace("{__platform__}", platform)
+
+
 def list_agents() -> list[Path]:
     """Return all agent .md files sorted by name."""
     return sorted(AGENTS_DIR.glob("*.md"))
@@ -111,7 +116,7 @@ def build_claude(output_dir: Path):
 
         if name in COMMAND_AGENTS:
             commands_out.mkdir(parents=True, exist_ok=True)
-            content = _claude_command_wrap(name, body)
+            content = _substitute_platform(_claude_command_wrap(name, body), "claude")
             dest = commands_out / agent_path.name
             dest.write_text(content, encoding="utf-8")
             print(f"  + commands/{agent_path.name}")
@@ -121,6 +126,7 @@ def build_claude(output_dir: Path):
                 content = body
             else:
                 content = preamble + "\n" + body
+            content = _substitute_platform(content, "claude")
 
             dest = agents_out / agent_path.name
             dest.write_text(content, encoding="utf-8")
@@ -188,7 +194,7 @@ def build_copilot(output_dir: Path):
         frontmatter = _copilot_frontmatter(name, desc, is_orchestrator=is_command)
 
         out_name = _agent_output_name(name)
-        content = frontmatter + "\n" + preamble + "\n" + body
+        content = _substitute_platform(frontmatter + "\n" + preamble + "\n" + body, "copilot")
         dest = agents_out / f"{out_name}.agent.md"
         dest.write_text(content, encoding="utf-8")
         print(f"  + {out_name}.agent.md")
@@ -256,7 +262,7 @@ def build_gemini(output_dir: Path):
         frontmatter = _gemini_frontmatter(name, desc, tools)
 
         out_name = _agent_output_name(name)
-        content = frontmatter + "\n" + preamble + "\n" + body
+        content = _substitute_platform(frontmatter + "\n" + preamble + "\n" + body, "gemini")
         dest = agents_out / f"{out_name}.md"
         dest.write_text(content, encoding="utf-8")
         print(f"  + {out_name}.md")

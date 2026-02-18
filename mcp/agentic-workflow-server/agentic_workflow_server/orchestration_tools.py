@@ -269,7 +269,11 @@ def _parse_ask_args(text: str, errors: list) -> dict[str, Any]:
         }
 
     agent = tokens[0].lower()
-    valid_agents = ["architect", "developer", "reviewer", "skeptic", "feedback"]
+    valid_agents = [
+        "architect", "developer", "reviewer", "skeptic", "feedback",
+        "implementer", "technical-writer", "security-auditor",
+        "api-guardian", "accessibility-reviewer", "performance-analyst",
+    ]
     if agent not in valid_agents:
         errors.append(f"Unknown agent '{agent}'. Available: {', '.join(valid_agents)}")
 
