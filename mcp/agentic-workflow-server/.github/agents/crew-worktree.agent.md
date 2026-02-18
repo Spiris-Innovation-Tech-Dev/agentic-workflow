@@ -109,9 +109,14 @@ Then start your AI assistant (claude / gemini / copilot) and give it this prompt
 
    **Use AI host** from step 5 (`<ai_host>`).
 
+   **Resolve launch mode** from config → `worktree.terminal_launch_mode`:
+   - `auto` (default) → platform default: tmux uses window, Windows Terminal uses tab, macOS uses window
+   - `window` → force new window (Windows Terminal: `wt.exe new-window`)
+   - `tab` → force new tab (Windows Terminal: `wt.exe new-tab`; tmux/macOS ignore this)
+
    **Get main repo path**: Run `pwd`
 
-   **Call**: `workflow_get_launch_command(task_id, terminal_env, ai_host, main_repo_path)`
+   **Call**: `workflow_get_launch_command(task_id, terminal_env, ai_host, main_repo_path, launch_mode)`
 
    **Execute** the returned `launch_commands` via bash.
 

@@ -1283,6 +1283,12 @@ TOOLS = [
                 "main_repo_path": {
                     "type": "string",
                     "description": "Absolute path to the main repository (for resolving relative worktree paths)"
+                },
+                "launch_mode": {
+                    "type": "string",
+                    "description": "Terminal launch mode: auto (platform default), window (new window), or tab (new tab)",
+                    "enum": ["auto", "window", "tab"],
+                    "default": "auto"
                 }
             },
             "required": []

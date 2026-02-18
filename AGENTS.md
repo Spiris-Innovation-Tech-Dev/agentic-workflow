@@ -2,6 +2,8 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+For project context and architecture, see [docs/ai-context/](./docs/ai-context/).
+
 ## Quick Reference
 
 ```bash

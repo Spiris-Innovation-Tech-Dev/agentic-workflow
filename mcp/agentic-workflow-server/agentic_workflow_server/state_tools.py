@@ -3676,6 +3676,7 @@ def workflow_get_launch_command(
     terminal_env: str = "unknown",
     ai_host: str = "claude",
     main_repo_path: Optional[str] = None,
+    launch_mode: str = "auto",
 ) -> dict[str, Any]:
     """Generate platform-specific commands to launch a terminal in the worktree.
 
@@ -3685,6 +3686,8 @@ def workflow_get_launch_command(
         ai_host: AI host to use (claude, gemini, copilot).
         main_repo_path: Absolute path to the main repository. Used to resolve
             the worktree absolute path.
+        launch_mode: Terminal launch mode (auto, window, tab). "auto" uses
+            platform defaults: tmux→window, windows_terminal→tab, macOS→window.
 
     Returns:
         Launch commands, resume prompt, and metadata.
@@ -3756,6 +3759,17 @@ def workflow_get_launch_command(
     color_idx = worktree.get("color_scheme_index", 0)
     scheme = CREW_COLOR_SCHEMES[color_idx % len(CREW_COLOR_SCHEMES)]
 
+    # Resolve launch mode: "auto" maps to platform defaults
+    if launch_mode not in ("auto", "window", "tab"):
+        launch_mode = "auto"
+    if launch_mode == "auto":
+        _auto_defaults = {
+            "tmux": "window",
+            "windows_terminal": "tab",
+            "macos": "window",
+        }
+        launch_mode = _auto_defaults.get(terminal_env, "window")
+
     if terminal_env == "tmux":
         # tmux: open new window, cd to worktree, run CLI with prompt
         tmux_cmd = (
@@ -3771,19 +3785,28 @@ def workflow_get_launch_command(
         launch_commands.append(tmux_style_cmd)
 
     elif terminal_env == "windows_terminal":
-        # Windows Terminal from WSL: run wsl.exe as the tab process so WT
+        # Windows Terminal from WSL: run wsl.exe as the tab/window process so WT
         # opens a WSL session. Use --cd for the working directory.
         # bash -lic: -l (login, sources .profile) + -i (interactive, sources
         # .bashrc where nvm/fnm/volta add CLI tools to PATH) + -c (command).
         # --tabColor and --colorScheme give each task a distinct visual identity.
-        wt_cmd = (
-            f"wt.exe new-tab "
-            f"--title {safe_task_id} "
-            f"--tabColor \"{scheme['tab']}\" "
-            f"--colorScheme \"{scheme['name']}\" "
-            f"wsl.exe --cd {safe_path} "
-            f"-- bash -lic {shlex.quote(cli_with_prompt)}"
-        )
+        if launch_mode == "window":
+            wt_cmd = (
+                f"wt.exe new-window "
+                f"--title {safe_task_id} "
+                f"--colorScheme \"{scheme['name']}\" "
+                f"wsl.exe --cd {safe_path} "
+                f"-- bash -lic {shlex.quote(cli_with_prompt)}"
+            )
+        else:
+            wt_cmd = (
+                f"wt.exe new-tab "
+                f"--title {safe_task_id} "
+                f"--tabColor \"{scheme['tab']}\" "
+                f"--colorScheme \"{scheme['name']}\" "
+                f"wsl.exe --cd {safe_path} "
+                f"-- bash -lic {shlex.quote(cli_with_prompt)}"
+            )
         launch_commands.append(wt_cmd)
 
     elif terminal_env == "macos":
@@ -3805,6 +3828,7 @@ def workflow_get_launch_command(
     state["worktree"]["launch"] = {
         "terminal_env": terminal_env,
         "ai_host": ai_host,
+        "launch_mode": launch_mode,
         "launched_at": datetime.now().isoformat(),
         "worktree_abs_path": worktree_abs_path,
         "color_scheme": scheme["name"],
