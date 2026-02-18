@@ -8,7 +8,7 @@ Rust TUI dashboard for cross-project agentic-workflow task monitoring. Built wit
 cd crew-board
 cargo build                  # Dev build
 cargo build --release        # Optimized binary (strip + LTO)
-cargo test                   # All 12 unit tests
+cargo test                   # All 16 unit tests
 cargo clippy                 # Lint (fix all warnings before committing)
 ```
 
@@ -22,7 +22,8 @@ src/
 ├── app.rs           # Application state: tree nav, views, popups, doc viewer
 ├── settings.rs      # Loads ~/.config/crew-board.toml (TOML)
 ├── discovery.rs     # Repo discovery: --repo paths + --scan directories
-├── launcher.rs      # Terminal launch: detect env, spawn wt.exe/tmux/osascript
+├── launcher.rs      # Terminal launch: detect env, spawn wt.exe/tmux/osascript, color schemes
+├── worktree.rs      # Native worktree creation: task ID, git ops, state.json, symlink
 ├── data/
 │   ├── mod.rs       # RepoData: aggregates tasks + issues + config per repo
 │   ├── task.rs      # Parses .tasks/*/state.json, discovers *.md artifacts
@@ -35,9 +36,11 @@ src/
     ├── beads_view.rs # View 2: issues list + detail
     ├── config_view.rs# View 3: config cascade display
     ├── cost_view.rs  # View 4: cost summary from workflow state
-    ├── status_bar.rs # Bottom: view tabs + keybindings + aggregate stats
+    ├── status_bar.rs # Bottom: view tabs + contextual keybinding hints + aggregate stats
     ├── launch_popup.rs # F2 popup: terminal + AI host selection
-    └── styles.rs     # 8 crew color schemes, phase styles, helpers
+    ├── create_popup.rs # n popup: multi-step worktree creation wizard
+    ├── search_popup.rs # F3 popup: full-text search across tasks + artifacts
+    └── styles.rs     # 8 crew color schemes, phase styles, selection/border/hint helpers
 ```
 
 ## Key Patterns
@@ -68,12 +71,41 @@ Overview ──d──> DocList ──Enter──> DocReader
 
 ### Event Loop
 Keys are routed in priority order:
-1. Launch popup open → popup keys only
-2. Right pane focused + non-Overview mode → doc/history navigation
-3. Default → tree nav, view switching, shortcuts
+1. Create worktree popup open → popup keys (text input, selection, toggles)
+2. Launch popup open → popup keys only
+3. Right pane focused + non-Overview mode → doc/history navigation
+4. Default → tree nav, view switching, shortcuts
+
+### Worktree Creation (`n` key)
+Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`. Press `n` on a repo row to:
+1. Enter task description (text input via `tui-input`)
+2. Select AI host (Claude/Copilot/Gemini)
+3. Toggle settings (pull latest, launch terminal)
+4. Background thread runs git operations (~100ms vs ~2s for Python)
+5. Shows result with task ID, branch, directory, color scheme
+6. Optionally launches a color-themed terminal tab
+
+**What it does:** Validates git repo, fetches/pulls, generates task ID (scans `.tasks/`), creates `state.json`, runs `git worktree add`, symlinks `.tasks/`, assigns color scheme.
+
+**What it skips (deferred to AI agent):** Settings patching, dependency install, WSL path fix, post-setup commands, Jira transitions — all handled by the agent on first `/crew resume`.
+
+The worktree is created at `../{repo-name}-worktrees/TASK_XXX` with branch `crew/{slugified-description}`.
+
+### UI Style System
+Central style helpers in `styles.rs` ensure visual consistency:
+- `selected_style()` — blue background (#2A4A6B) for selected rows everywhere
+- `focused_border_style()` / `unfocused_border_style()` — bold cyan vs dim gray borders
+- `popup_selected_style()` — delegates to `selected_style()` (single source of truth)
+- `hint_style()` — dim gray for keybinding hints
+
+Pane focus is indicated by bold border + `◄` marker in the title. Detail pane titles show breadcrumb trails (e.g. `TASK_003 > Documents > Architect Analysis`). Status bar hints are contextual — they change based on active view, focus pane, detail mode, and open popups.
 
 ### Color Schemes
-8 schemes from Python `CREW_COLOR_SCHEMES` (state_tools.py), indexed by `color_scheme_index` from worktree state. Used for tree row accents and detail pane colors.
+8 schemes from Python `CREW_COLOR_SCHEMES` (state_tools.py), indexed by `color_scheme_index` from worktree state. Used for tree row accents, detail pane colors, and terminal tab colors.
+
+`launcher.rs` provides `ColorSchemeHex` with hex strings for terminal commands:
+- Windows Terminal: `--tabColor` and `--colorScheme` args to `wt.exe`
+- tmux: `set-option window-style bg=...,fg=...`
 
 ## Data Sources
 
@@ -85,6 +117,17 @@ Keys are routed in priority order:
 | Config (global) | `~/.claude/workflow-config.yaml` | YAML |
 | Config (project) | `config/workflow-config.yaml` | YAML |
 | User settings | `~/.config/crew-board.toml` | TOML |
+
+## Adding a New Popup
+
+Follow the pattern established by `launch_popup.rs` and `create_popup.rs`:
+1. Create `src/ui/new_popup.rs` with `pub fn draw(frame, app)` using `centered_rect()` for positioning
+2. Add popup state struct + step enum to `app.rs`
+3. Add `Option<NewPopup>` field to `App` struct
+4. Add lifecycle methods: `open_*`, `*_handle_key`, `close_*`
+5. Register in `src/ui/mod.rs` — add `pub mod` and draw overlay call
+6. Add key routing priority in `main.rs` event loop (popups go first)
+7. Add keybinding hint in `status_bar.rs`
 
 ## Adding a New View
 
@@ -108,3 +151,6 @@ Keys are routed in priority order:
 - **Login shells**: `bash -lic` sources profile which may reset cwd. Always prefix commands with `cd <dir> &&`.
 - **Tree rebuild**: Forgetting `rebuild_tree()` after changing `expanded_repos` causes stale cursor state.
 - **Detail mode reset**: Must reset `detail_mode` to `Overview` when tree cursor changes.
+- **Popup priority**: Create popup must be checked before launch popup in the event loop. Both must be checked before default key handling.
+- **Background threads**: `create_worktree()` runs on `std::thread::spawn`. Poll `JoinHandle::is_finished()` each tick (250ms). No async runtime needed.
+- **`n` key scope**: Only works on Repo rows — `open_create_popup()` returns early on Task rows.

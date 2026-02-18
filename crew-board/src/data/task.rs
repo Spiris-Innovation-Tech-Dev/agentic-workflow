@@ -175,7 +175,7 @@ pub fn load_artifacts(task_dir: &Path) -> Vec<TaskArtifact> {
         let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
         let modified = meta
             .and_then(|m| m.modified().ok())
-            .map(|t| DateTime::<Utc>::from(t));
+            .map(DateTime::<Utc>::from);
 
         artifacts.push(TaskArtifact {
             name: stem,

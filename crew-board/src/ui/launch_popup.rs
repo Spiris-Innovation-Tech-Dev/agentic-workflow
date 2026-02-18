@@ -1,4 +1,5 @@
 use crate::app::{App, LaunchStep};
+use crate::ui::styles;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -89,9 +90,7 @@ fn draw_selection(frame: &mut Frame, area: Rect, header: &str, items: &[&str], c
         .map(|(i, label)| {
             let prefix = if i == cursor { "▸ " } else { "  " };
             let style = if i == cursor {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                styles::popup_selected_style()
             } else {
                 Style::default().fg(Color::White)
             };

@@ -82,8 +82,27 @@ pub fn header_style() -> Style {
 
 pub fn selected_style() -> Style {
     Style::default()
-        .bg(Color::DarkGray)
+        .bg(Color::Rgb(0x2A, 0x4A, 0x6B))
+        .fg(Color::White)
         .add_modifier(Modifier::BOLD)
+}
+
+pub fn focused_border_style() -> Style {
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub fn unfocused_border_style() -> Style {
+    Style::default().fg(Color::DarkGray)
+}
+
+pub fn popup_selected_style() -> Style {
+    selected_style()
+}
+
+pub fn hint_style() -> Style {
+    Style::default().fg(Color::DarkGray)
 }
 
 pub fn dim_style() -> Style {

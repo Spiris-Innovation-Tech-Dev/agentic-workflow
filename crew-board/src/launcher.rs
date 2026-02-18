@@ -18,6 +18,30 @@ pub enum AiHost {
     Gemini,
 }
 
+/// Color scheme with hex strings for terminal commands.
+pub struct ColorSchemeHex {
+    pub name: &'static str,
+    pub tab: &'static str,
+    pub bg: &'static str,
+    pub fg: &'static str,
+}
+
+pub const COLOR_SCHEME_HEX: &[ColorSchemeHex] = &[
+    ColorSchemeHex { name: "Crew Ocean",    tab: "#1A6B8A", bg: "#0C1B2A", fg: "#C8D6E5" },
+    ColorSchemeHex { name: "Crew Forest",   tab: "#2D7D46", bg: "#0E1F14", fg: "#C5D1C0" },
+    ColorSchemeHex { name: "Crew Sunset",   tab: "#C75B39", bg: "#1F120E", fg: "#D8C8BA" },
+    ColorSchemeHex { name: "Crew Amethyst", tab: "#7B5EA7", bg: "#16121F", fg: "#CCC4D8" },
+    ColorSchemeHex { name: "Crew Steel",    tab: "#5C7A8A", bg: "#141C22", fg: "#C0CCD4" },
+    ColorSchemeHex { name: "Crew Ember",    tab: "#B85C3A", bg: "#1A110D", fg: "#D4C4B4" },
+    ColorSchemeHex { name: "Crew Frost",    tab: "#4BA3C7", bg: "#0D1820", fg: "#C4D4E0" },
+    ColorSchemeHex { name: "Crew Earth",    tab: "#8D7B4A", bg: "#1A170E", fg: "#D0C8B8" },
+];
+
+/// Get hex color scheme by index (wraps around).
+pub fn get_hex_scheme(index: usize) -> &'static ColorSchemeHex {
+    &COLOR_SCHEME_HEX[index % COLOR_SCHEME_HEX.len()]
+}
+
 impl AiHost {
     pub fn label(&self) -> &'static str {
         match self {
@@ -111,6 +135,7 @@ pub fn launch(
     work_dir: &Path,
     task_id: &str,
     _task_description: &str,
+    color_scheme: Option<&ColorSchemeHex>,
 ) -> Result<(), String> {
     let dir = work_dir.to_string_lossy();
     let resume_prompt = format!("/crew resume {}", task_id);
@@ -125,19 +150,18 @@ pub fn launch(
                 host.command(),
                 resume_prompt,
             );
+            let mut args: Vec<&str> = vec!["new-tab", "--title", task_id];
+            // Storage for owned strings that args references
+            let tab_color;
+            let scheme_name;
+            if let Some(cs) = color_scheme {
+                tab_color = cs.tab.to_string();
+                scheme_name = cs.name.to_string();
+                args.extend(["--tabColor", &tab_color, "--colorScheme", &scheme_name]);
+            }
+            args.extend(["wsl.exe", "--cd", &dir, "--", "bash", "-lic", &shell_cmd]);
             Command::new("wt.exe")
-                .args([
-                    "new-tab",
-                    "--title",
-                    task_id,
-                    "wsl.exe",
-                    "--cd",
-                    &dir,
-                    "--",
-                    "bash",
-                    "-lic",
-                    &shell_cmd,
-                ])
+                .args(&args)
                 .spawn()
                 .map_err(|e| format!("Failed to launch Windows Terminal: {}", e))?;
         }
@@ -158,6 +182,14 @@ pub fn launch(
                 ])
                 .spawn()
                 .map_err(|e| format!("Failed to launch tmux window: {}", e))?;
+            // Apply color scheme to tmux window (best-effort)
+            if let Some(cs) = color_scheme {
+                let style = format!("bg={},fg={}", cs.bg, cs.fg);
+                Command::new("tmux")
+                    .args(["set-option", "-t", task_id, "-w", "window-style", &style])
+                    .spawn()
+                    .ok();
+            }
         }
         TerminalEnv::MacOs => {
             // Use osascript to open Terminal.app

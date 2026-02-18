@@ -1,8 +1,10 @@
 pub mod beads_view;
 pub mod config_view;
 pub mod cost_view;
+pub mod create_popup;
 pub mod detail_pane;
 pub mod launch_popup;
+pub mod search_popup;
 pub mod status_bar;
 pub mod styles;
 pub mod task_list;
@@ -33,9 +35,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // Status bar
     status_bar::draw(frame, app, chunks[1]);
 
-    // Launch popup overlay (drawn on top)
+    // Popup overlays (drawn on top)
     if app.launch_popup.is_some() {
         launch_popup::draw(frame, app);
+    }
+    if app.create_popup.is_some() {
+        create_popup::draw(frame, app);
+    }
+    if app.search_popup.is_some() {
+        search_popup::draw(frame, app);
     }
 }
 

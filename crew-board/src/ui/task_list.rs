@@ -11,9 +11,9 @@ use ratatui::{
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus_pane == FocusPane::Left;
     let border_style = if is_focused {
-        Style::default().fg(Color::Cyan)
+        styles::focused_border_style()
     } else {
-        Style::default().fg(Color::DarkGray)
+        styles::unfocused_border_style()
     };
 
     let items: Vec<ListItem> = app
@@ -26,7 +26,8 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let total_tasks: usize = app.repos.iter().map(|r| r.tasks.len()).sum();
-    let title = format!(" {} repos, {} tasks ", app.repos.len(), total_tasks);
+    let focus_marker = if is_focused { " ◄" } else { "" };
+    let title = format!(" {} repos, {} tasks{} ", app.repos.len(), total_tasks, focus_marker);
     let list = List::new(items)
         .block(
             Block::default()

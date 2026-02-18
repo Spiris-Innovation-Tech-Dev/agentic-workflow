@@ -26,9 +26,9 @@ fn draw_issue_list(frame: &mut Frame, app: &App, area: Rect) {
 
     let is_focused = app.focus_pane == FocusPane::Left;
     let border_style = if is_focused {
-        Style::default().fg(Color::Cyan)
+        styles::focused_border_style()
     } else {
-        Style::default().fg(Color::DarkGray)
+        styles::unfocused_border_style()
     };
 
     let items: Vec<ListItem> = repo
@@ -79,7 +79,7 @@ fn draw_issue_list(frame: &mut Frame, app: &App, area: Rect) {
                 .border_style(border_style),
         )
         .highlight_style(styles::selected_style())
-        .highlight_symbol(">> ");
+        .highlight_symbol("▌ ");
 
     let mut state = ListState::default();
     state.select(Some(app.selected_issue));
@@ -89,9 +89,9 @@ fn draw_issue_list(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_issue_detail(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus_pane == FocusPane::Right;
     let border_style = if is_focused {
-        Style::default().fg(Color::Cyan)
+        styles::focused_border_style()
     } else {
-        Style::default().fg(Color::DarkGray)
+        styles::unfocused_border_style()
     };
 
     let issue = match app.current_issue() {

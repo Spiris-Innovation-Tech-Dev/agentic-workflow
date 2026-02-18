@@ -1,8 +1,10 @@
 use crate::data::task::{self, TaskArtifact};
 use crate::data::RepoData;
 use crate::launcher::{self, AiHost, TerminalEnv};
+use crate::worktree;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tui_input::Input;
 
 /// Which view/tab is active.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,6 +65,50 @@ pub enum LaunchStep {
     Done,
 }
 
+/// Steps in the create worktree popup flow.
+#[derive(PartialEq)]
+pub enum CreateStep {
+    InputDescription,
+    SelectHost,
+    ToggleSettings,
+    Confirm,
+    Executing,
+    Done,
+}
+
+/// State for the "new worktree" popup.
+pub struct CreateWorktreePopup {
+    pub step: CreateStep,
+    pub description_input: Input,
+    pub hosts: Vec<AiHost>,
+    pub host_cursor: usize,
+    pub pull: bool,
+    pub launch_after: bool,
+    pub settings_cursor: usize,
+    pub repo_path: PathBuf,
+    pub repo_name: String,
+    pub preview: Option<worktree::WorktreePreview>,
+    pub handle: Option<std::thread::JoinHandle<Result<worktree::WorktreeResult, String>>>,
+    pub started_at: Option<std::time::Instant>,
+    pub result: Option<Result<worktree::WorktreeResult, String>>,
+}
+
+/// A single search hit linking back to a specific task.
+pub struct SearchResult {
+    pub repo_index: usize,
+    pub task_index: usize,
+    pub task_id: String,
+    pub description: String,
+    pub match_source: String, // "description", "architect.md", "linked_issue", etc.
+}
+
+/// State for the `/` search popup.
+pub struct SearchPopup {
+    pub input: Input,
+    pub results: Vec<SearchResult>,
+    pub cursor: usize,
+}
+
 pub struct App {
     pub repos: Vec<RepoData>,
     pub repo_paths: Vec<PathBuf>,
@@ -91,6 +137,12 @@ pub struct App {
 
     // Launch popup
     pub launch_popup: Option<LaunchPopup>,
+
+    // Create worktree popup
+    pub create_popup: Option<CreateWorktreePopup>,
+
+    // Search popup
+    pub search_popup: Option<SearchPopup>,
 }
 
 impl App {
@@ -117,6 +169,8 @@ impl App {
             cached_artifacts: Vec::new(),
             cached_task_dir: None,
             launch_popup: None,
+            create_popup: None,
+            search_popup: None,
         };
         app.rebuild_tree();
         app.ensure_artifacts();
@@ -507,6 +561,7 @@ impl App {
                     &popup.work_dir,
                     &popup.task_id,
                     &popup.task_desc,
+                    None,
                 );
                 popup.result_msg = Some(match result {
                     Ok(()) => format!("Launched {} in {}", host.label(), terminal.label()),
@@ -523,5 +578,458 @@ impl App {
     /// Close the launch popup.
     pub fn close_launch_popup(&mut self) {
         self.launch_popup = None;
+    }
+
+    // ── Create Worktree Popup ──────────────────────────────────────────
+
+    /// Open the create worktree popup (only on Repo rows).
+    pub fn open_create_popup(&mut self) {
+        let (repo_path, repo_name) = match self.current_tree_row() {
+            Some(TreeRow::Repo(ri)) => {
+                let repo = &self.repos[*ri];
+                (repo.path.clone(), repo.name.clone())
+            }
+            _ => return, // Only on repo rows
+        };
+
+        let hosts = launcher::detect_ai_hosts();
+
+        self.create_popup = Some(CreateWorktreePopup {
+            step: CreateStep::InputDescription,
+            description_input: Input::default(),
+            hosts,
+            host_cursor: 0,
+            pull: true,
+            launch_after: true,
+            settings_cursor: 0,
+            repo_path,
+            repo_name,
+            preview: None,
+            handle: None,
+            started_at: None,
+            result: None,
+        });
+    }
+
+    /// Handle a key event for the create popup. Returns true if the key was consumed.
+    pub fn create_popup_handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
+        use crossterm::event::KeyCode;
+
+        let popup = match &mut self.create_popup {
+            Some(p) => p,
+            None => return false,
+        };
+
+        match popup.step {
+            CreateStep::InputDescription => match key.code {
+                KeyCode::Esc => {
+                    self.create_popup = None;
+                }
+                KeyCode::Enter => {
+                    let desc = popup.description_input.value().trim().to_string();
+                    if !desc.is_empty() {
+                        popup.step = CreateStep::SelectHost;
+                    }
+                }
+                _ => {
+                    use tui_input::backend::crossterm::EventHandler;
+                    popup.description_input.handle_event(
+                        &crossterm::event::Event::Key(key),
+                    );
+                }
+            },
+            CreateStep::SelectHost => match key.code {
+                KeyCode::Esc => {
+                    self.create_popup = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.create_popup {
+                        if p.host_cursor > 0 {
+                            p.host_cursor -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.create_popup {
+                        if p.host_cursor + 1 < p.hosts.len() {
+                            p.host_cursor += 1;
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    popup.step = CreateStep::ToggleSettings;
+                }
+                _ => {}
+            },
+            CreateStep::ToggleSettings => match key.code {
+                KeyCode::Esc => {
+                    self.create_popup = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.create_popup {
+                        if p.settings_cursor > 0 {
+                            p.settings_cursor -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.create_popup {
+                        if p.settings_cursor < 1 {
+                            p.settings_cursor += 1;
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(p) = &mut self.create_popup {
+                        match p.settings_cursor {
+                            0 => p.pull = !p.pull,
+                            1 => p.launch_after = !p.launch_after,
+                            _ => {}
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    self.compute_preview();
+                }
+                _ => {}
+            },
+            CreateStep::Confirm => match key.code {
+                KeyCode::Esc => {
+                    self.create_popup = None;
+                }
+                KeyCode::Enter => {
+                    self.start_create_worktree();
+                }
+                _ => {}
+            },
+            CreateStep::Executing => {
+                // No keys during execution
+            }
+            CreateStep::Done => match key.code {
+                KeyCode::Esc => {
+                    self.close_create_popup();
+                }
+                KeyCode::Enter => {
+                    self.create_popup_launch_and_close();
+                }
+                _ => {}
+            },
+        }
+        true
+    }
+
+    /// Compute and display the preview before executing.
+    fn compute_preview(&mut self) {
+        let popup = match &mut self.create_popup {
+            Some(p) => p,
+            None => return,
+        };
+        let desc = popup.description_input.value().trim().to_string();
+        match worktree::preview(&popup.repo_path, &desc) {
+            Ok(pv) => {
+                popup.preview = Some(pv);
+                popup.step = CreateStep::Confirm;
+            }
+            Err(e) => {
+                // Show error in Done step
+                popup.result = Some(Err(e));
+                popup.step = CreateStep::Done;
+            }
+        }
+    }
+
+    /// Start the background worktree creation.
+    fn start_create_worktree(&mut self) {
+        let popup = match &mut self.create_popup {
+            Some(p) => p,
+            None => return,
+        };
+
+        let description = popup.description_input.value().trim().to_string();
+        let repo_path = popup.repo_path.clone();
+        let ai_host = popup.hosts[popup.host_cursor];
+        let pull = popup.pull;
+
+        popup.step = CreateStep::Executing;
+        popup.started_at = Some(std::time::Instant::now());
+
+        popup.handle = Some(std::thread::spawn(move || {
+            worktree::create_worktree(&repo_path, &description, ai_host, pull)
+        }));
+    }
+
+    /// Poll for background worktree creation completion (call each tick).
+    pub fn create_popup_check_completion(&mut self) {
+        let popup = match &mut self.create_popup {
+            Some(p) if p.step == CreateStep::Executing => p,
+            _ => return,
+        };
+
+        let handle = match popup.handle.take() {
+            Some(h) => h,
+            None => return,
+        };
+
+        if handle.is_finished() {
+            popup.result = Some(
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("Thread panicked".to_string())),
+            );
+            popup.step = CreateStep::Done;
+        } else {
+            // Put it back
+            popup.handle = Some(handle);
+        }
+    }
+
+    /// On Enter in Done step: launch terminal if configured, then close.
+    fn create_popup_launch_and_close(&mut self) {
+        let popup = match &self.create_popup {
+            Some(p) => p,
+            None => return,
+        };
+
+        if popup.launch_after {
+            if let Some(Ok(ref result)) = popup.result {
+                let terminals = launcher::detect_terminals();
+                if let Some(&terminal) = terminals.first() {
+                    let host = popup.hosts[popup.host_cursor];
+                    let cs = launcher::get_hex_scheme(result.color_scheme_index);
+                    let _ = launcher::launch(
+                        terminal,
+                        host,
+                        &result.worktree_abs,
+                        &result.task_id,
+                        "",
+                        Some(cs),
+                    );
+                }
+            }
+        }
+        self.create_popup = None;
+        self.refresh(); // Reload to show new task
+    }
+
+    /// Close the create popup without launching.
+    pub fn close_create_popup(&mut self) {
+        let should_refresh = self
+            .create_popup
+            .as_ref()
+            .is_some_and(|p| p.result.as_ref().is_some_and(|r| r.is_ok()));
+        self.create_popup = None;
+        if should_refresh {
+            self.refresh();
+        }
+    }
+
+    // ── Search Popup ─────────────────────────────────────────────────────
+
+    /// Open the search popup.
+    pub fn open_search(&mut self) {
+        self.search_popup = Some(SearchPopup {
+            input: Input::default(),
+            results: Vec::new(),
+            cursor: 0,
+        });
+    }
+
+    /// Handle a key event for the search popup. Returns true if consumed.
+    pub fn search_handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
+        use crossterm::event::KeyCode;
+
+        let popup = match &mut self.search_popup {
+            Some(p) => p,
+            None => return false,
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.search_popup = None;
+            }
+            KeyCode::Enter => {
+                self.search_navigate();
+            }
+            KeyCode::Up => {
+                if popup.cursor > 0 {
+                    popup.cursor -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if !popup.results.is_empty() && popup.cursor + 1 < popup.results.len() {
+                    popup.cursor += 1;
+                }
+            }
+            _ => {
+                // Forward to tui_input for text editing
+                use tui_input::backend::crossterm::EventHandler;
+                popup
+                    .input
+                    .handle_event(&crossterm::event::Event::Key(key));
+                self.run_search();
+            }
+        }
+        true
+    }
+
+    /// Run search across all tasks using the current query.
+    fn run_search(&mut self) {
+        let query = match &self.search_popup {
+            Some(p) => p.input.value().to_lowercase(),
+            None => return,
+        };
+
+        if query.is_empty() {
+            if let Some(p) = &mut self.search_popup {
+                p.results.clear();
+                p.cursor = 0;
+            }
+            return;
+        }
+
+        const MAX_RESULTS: usize = 50;
+        let mut results = Vec::new();
+
+        for (repo_index, repo) in self.repos.iter().enumerate() {
+            for (task_index, (task_dir, task)) in repo.tasks.iter().enumerate() {
+                if results.len() >= MAX_RESULTS {
+                    break;
+                }
+
+                // Check structured fields first
+                if let Some(source) = Self::match_task_fields(task, &query) {
+                    results.push(SearchResult {
+                        repo_index,
+                        task_index,
+                        task_id: task.task_id.clone(),
+                        description: task.description.clone(),
+                        match_source: source,
+                    });
+                    continue;
+                }
+
+                // Fall back: read raw state.json for extra fields
+                let state_path = task_dir.join("state.json");
+                if let Ok(raw) = std::fs::read_to_string(&state_path) {
+                    if raw.to_lowercase().contains(&query) {
+                        results.push(SearchResult {
+                            repo_index,
+                            task_index,
+                            task_id: task.task_id.clone(),
+                            description: task.description.clone(),
+                            match_source: "state.json".to_string(),
+                        });
+                        continue;
+                    }
+                }
+
+                // Fall back: scan .md artifact files (first 4KB each)
+                if let Some(source) = Self::match_task_artifacts(task_dir, &query) {
+                    results.push(SearchResult {
+                        repo_index,
+                        task_index,
+                        task_id: task.task_id.clone(),
+                        description: task.description.clone(),
+                        match_source: source,
+                    });
+                }
+            }
+            if results.len() >= MAX_RESULTS {
+                break;
+            }
+        }
+
+        if let Some(p) = &mut self.search_popup {
+            p.results = results;
+            p.cursor = 0;
+        }
+    }
+
+    /// Check structured task fields against query. Returns match source if found.
+    fn match_task_fields(
+        task: &crate::data::task::TaskState,
+        query: &str,
+    ) -> Option<String> {
+        if task.task_id.to_lowercase().contains(query) {
+            return Some("task_id".to_string());
+        }
+        if task.description.to_lowercase().contains(query) {
+            return Some("description".to_string());
+        }
+        if let Some(ref wt) = task.worktree {
+            if wt.branch.to_lowercase().contains(query) {
+                return Some("branch".to_string());
+            }
+        }
+        if let Some(ref phase) = task.phase {
+            if phase.to_lowercase().contains(query) {
+                return Some("phase".to_string());
+            }
+        }
+        None
+    }
+
+    /// Scan .md files in task_dir for query match. Returns source filename if found.
+    fn match_task_artifacts(task_dir: &Path, query: &str) -> Option<String> {
+        let entries = std::fs::read_dir(task_dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            // Read first 4KB
+            if let Ok(file) = std::fs::File::open(&path) {
+                use std::io::Read;
+                let mut buf = vec![0u8; 4096];
+                let mut reader = std::io::BufReader::new(file);
+                let n = reader.read(&mut buf).unwrap_or(0);
+                let text = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                if text.contains(query) {
+                    let fname = path
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("artifact");
+                    return Some(fname.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Navigate to the selected search result and close the popup.
+    fn search_navigate(&mut self) {
+        let (repo_index, task_index) = match &self.search_popup {
+            Some(popup) if !popup.results.is_empty() => {
+                let r = &popup.results[popup.cursor];
+                (r.repo_index, r.task_index)
+            }
+            _ => return,
+        };
+
+        // Close popup first
+        self.search_popup = None;
+
+        // Switch to Tasks view
+        self.active_view = ActiveView::Tasks;
+
+        // Expand the target repo
+        self.expanded_repos.insert(repo_index);
+        self.rebuild_tree();
+
+        // Find the matching TreeRow::Task position
+        for (i, row) in self.tree_rows.iter().enumerate() {
+            if let TreeRow::Task(ri, ti) = row {
+                if *ri == repo_index && *ti == task_index {
+                    self.tree_cursor = i;
+                    break;
+                }
+            }
+        }
+
+        // Reset detail state
+        self.detail_mode = DetailMode::Overview;
+        self.detail_scroll = 0;
+        self.focus_pane = FocusPane::Left;
+        self.ensure_artifacts();
     }
 }

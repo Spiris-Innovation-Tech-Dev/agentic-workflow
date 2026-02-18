@@ -12,39 +12,40 @@ use ratatui::{
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus_pane == FocusPane::Right;
     let border_style = if is_focused {
-        Style::default().fg(Color::Cyan)
+        styles::focused_border_style()
     } else {
-        Style::default().fg(Color::DarkGray)
+        styles::unfocused_border_style()
     };
 
     // If a repo row is selected, show repo summary
     if let Some(TreeRow::Repo(ri)) = app.current_tree_row() {
-        draw_repo_summary(frame, app, *ri, area, border_style);
+        draw_repo_summary(frame, app, *ri, area, border_style, is_focused);
         return;
     }
 
     // Dispatch based on detail mode
     match &app.detail_mode {
-        DetailMode::Overview => draw_overview(frame, app, area, border_style),
+        DetailMode::Overview => draw_overview(frame, app, area, border_style, is_focused),
         DetailMode::DocList { cursor } => {
-            draw_doc_list(frame, app, area, border_style, *cursor)
+            draw_doc_list(frame, app, area, border_style, *cursor, is_focused)
         }
         DetailMode::DocReader {
             artifact_index,
             content,
-        } => draw_doc_reader(frame, app, area, border_style, *artifact_index, content),
-        DetailMode::History => draw_history(frame, app, area, border_style),
+        } => draw_doc_reader(frame, app, area, border_style, *artifact_index, content, is_focused),
+        DetailMode::History => draw_history(frame, app, area, border_style, is_focused),
     }
 }
 
 // ── Overview (default task detail) ──────────────────────────────────────────
 
-fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style) {
+fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, is_focused: bool) {
     let task = match app.current_task() {
         Some(t) => t,
         None => {
+            let focus_marker = if is_focused { " ◄" } else { "" };
             let block = Block::default()
-                .title(" Details ")
+                .title(format!(" Details{} ", focus_marker))
                 .borders(Borders::ALL)
                 .border_style(border_style);
             let para = Paragraph::new("Select a task or repo").block(block);
@@ -264,9 +265,11 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style) 
         Span::raw(format_timestamp(&task.updated_at)),
     ]));
 
+    let focus_marker = if is_focused { " ◄" } else { "" };
+    let breadcrumb = format!(" {} > Overview{} ", task.task_id, focus_marker);
     let text = Text::from(lines);
     let block = Block::default()
-        .title(" Details ")
+        .title(breadcrumb)
         .borders(Borders::ALL)
         .border_style(border_style);
     let paragraph = Paragraph::new(text)
@@ -279,7 +282,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style) 
 
 // ── Document List ───────────────────────────────────────────────────────────
 
-fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, cursor: usize) {
+fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, cursor: usize, is_focused: bool) {
     let task = app.current_task();
     let task_id = task.map(|t| t.task_id.as_str()).unwrap_or("?");
 
@@ -287,7 +290,7 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
 
     lines.push(Line::from(vec![
         Span::styled(
-            format!("{}", task_id),
+            task_id.to_string(),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -313,9 +316,7 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
                 .unwrap_or_default();
 
             let label_style = if is_selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                styles::selected_style()
             } else {
                 Style::default().fg(Color::White)
             };
@@ -376,9 +377,11 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
         Style::default().fg(Color::DarkGray),
     )));
 
+    let focus_marker = if is_focused { " ◄" } else { "" };
+    let breadcrumb = format!(" {} > Documents{} ", task_id, focus_marker);
     let text = Text::from(lines);
     let block = Block::default()
-        .title(" Documents ")
+        .title(breadcrumb)
         .borders(Borders::ALL)
         .border_style(border_style);
     let paragraph = Paragraph::new(text)
@@ -398,11 +401,13 @@ fn draw_doc_reader(
     border_style: Style,
     artifact_index: usize,
     content: &str,
+    is_focused: bool,
 ) {
+    let task_id = app.current_task().map(|t| t.task_id.as_str()).unwrap_or("?");
     let artifact = app.cached_artifacts.get(artifact_index);
-    let title = artifact
-        .map(|a| format!(" {} ", a.label))
-        .unwrap_or_else(|| " Document ".to_string());
+    let doc_name = artifact.map(|a| a.label.as_str()).unwrap_or("Document");
+    let focus_marker = if is_focused { " ◄" } else { "" };
+    let title = format!(" {} > Documents > {}{} ", task_id, doc_name, focus_marker);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -473,12 +478,13 @@ fn draw_doc_reader(
 
 // ── History View ────────────────────────────────────────────────────────────
 
-fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style) {
+fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, is_focused: bool) {
     let task = match app.current_task() {
         Some(t) => t,
         None => {
+            let focus_marker = if is_focused { " ◄" } else { "" };
             let block = Block::default()
-                .title(" History ")
+                .title(format!(" History{} ", focus_marker))
                 .borders(Borders::ALL)
                 .border_style(border_style);
             frame.render_widget(Paragraph::new("No task selected").block(block), area);
@@ -658,9 +664,11 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style) {
         Style::default().fg(Color::DarkGray),
     )));
 
+    let focus_marker = if is_focused { " ◄" } else { "" };
+    let breadcrumb = format!(" {} > History{} ", task.task_id, focus_marker);
     let text = Text::from(lines);
     let block = Block::default()
-        .title(" History ")
+        .title(breadcrumb)
         .borders(Borders::ALL)
         .border_style(border_style);
     let paragraph = Paragraph::new(text)
@@ -679,6 +687,7 @@ fn draw_repo_summary(
     ri: usize,
     area: Rect,
     border_style: Style,
+    is_focused: bool,
 ) {
     let repo = &app.repos[ri];
     let mut lines: Vec<Line> = Vec::new();
@@ -760,9 +769,10 @@ fn draw_repo_summary(
         }
     }
 
+    let focus_marker = if is_focused { " ◄" } else { "" };
     let text = Text::from(lines);
     let block = Block::default()
-        .title(" Repo Summary ")
+        .title(format!(" Repo Summary{} ", focus_marker))
         .borders(Borders::ALL)
         .border_style(border_style);
     let paragraph = Paragraph::new(text)

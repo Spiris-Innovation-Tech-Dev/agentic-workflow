@@ -4,12 +4,13 @@ mod discovery;
 mod launcher;
 mod settings;
 mod ui;
+mod worktree;
 
 use anyhow::Result;
 use app::{ActiveView, App, DetailMode, FocusPane};
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -101,8 +102,21 @@ fn run_app(
         let timeout = Duration::from_millis(250);
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                // If launch popup is open, route keys there
-                if app.launch_popup.is_some() {
+                // On Windows, crossterm fires both Press and Release events.
+                // Only handle Press to avoid double-toggling (flicker).
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                // Priority 0: Search popup
+                if app.search_popup.is_some() {
+                    app.search_handle_key(key);
+                }
+                // Priority 1: Create worktree popup
+                else if app.create_popup.is_some() {
+                    app.create_popup_handle_key(key);
+                }
+                // Priority 2: Launch popup
+                else if app.launch_popup.is_some() {
                     match key.code {
                         KeyCode::Esc => app.close_launch_popup(),
                         KeyCode::Up | KeyCode::Char('k') => app.popup_up(),
@@ -110,10 +124,11 @@ fn run_app(
                         KeyCode::Enter => app.popup_confirm(),
                         _ => {}
                     }
-                } else if app.focus_pane == FocusPane::Right
+                }
+                // Priority 3: Right pane doc/history navigation
+                else if app.focus_pane == FocusPane::Right
                     && app.detail_mode != DetailMode::Overview
                 {
-                    // Right pane has focus and we're in a doc/history mode
                     match key.code {
                         KeyCode::Esc | KeyCode::Backspace => app.detail_back(),
                         KeyCode::Up | KeyCode::Char('k') => {
@@ -137,7 +152,9 @@ fn run_app(
                         KeyCode::Char('q') => app.should_quit = true,
                         _ => {}
                     }
-                } else {
+                }
+                // Priority 4: Default key handling
+                else {
                     match (key.modifiers, key.code) {
                         // Quit
                         (_, KeyCode::Char('q')) | (_, KeyCode::Esc) => app.should_quit = true,
@@ -145,6 +162,12 @@ fn run_app(
 
                         // Launch terminal
                         (_, KeyCode::F(2)) => app.open_launch_popup(),
+
+                        // New worktree
+                        (_, KeyCode::Char('n')) => app.open_create_popup(),
+
+                        // Search
+                        (_, KeyCode::F(3)) => app.open_search(),
 
                         // Refresh
                         (_, KeyCode::F(5)) => app.refresh(),
@@ -186,6 +209,9 @@ fn run_app(
         if app.should_quit {
             return Ok(());
         }
+
+        // Check for create worktree completion each tick
+        app.create_popup_check_completion();
 
         // Auto-refresh on poll interval
         if app.last_refresh.elapsed() >= Duration::from_secs(app.poll_interval_secs) {
