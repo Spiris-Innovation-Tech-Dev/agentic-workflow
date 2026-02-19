@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Stop Hook: Check Workflow Completion
+Stop Hook: Check Workflow Completion (Session-Isolated)
 
 This hook runs when Claude is about to stop and ensures the workflow has
-completed all required phases, especially Technical Writer.
+completed all required phases.
 
-The hook:
-- Checks for an active workflow task
-- Verifies all required phases are complete
-- Blocks stopping if Technical Writer hasn't run (exit 2)
-- Allows stopping if workflow is complete or no active workflow
+Session isolation strategy:
+1. Read .tasks/.active_task — if it points to a valid task, use that
+2. Try worktree detection (match cwd to worktree paths) — use matched task
+3. Otherwise: no crew workflow in this session → allow exit (exit 0)
 
-Required phases: architect, developer, reviewer, implementer, technical_writer
+Stale tasks from previous sessions never block unrelated sessions.
 
 Usage in .claude/settings.json:
 {
@@ -32,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from workflow_state import WorkflowState, find_active_task, REQUIRED_PHASES
+from workflow_state import WorkflowState, _resolve_tasks_dir, _detect_worktree_task_id
 
 
 def check_env_skip():
@@ -40,12 +39,45 @@ def check_env_skip():
     return os.environ.get("CREW_SKIP_VALIDATION") == "1"
 
 
+def _find_session_task():
+    """Find the task for THIS session only.
+
+    1. .tasks/.active_task file (written by crew_orchestrator on init/resume)
+    2. Worktree detection (match cwd to worktree paths)
+    3. None — no crew workflow in this session
+    """
+    tasks_dir = _resolve_tasks_dir()
+
+    # 1. Check .active_task file
+    active_file = tasks_dir / ".active_task"
+    if active_file.exists():
+        try:
+            task_id = active_file.read_text().strip()
+            if task_id:
+                task_dir = tasks_dir / task_id
+                if task_dir.exists() and (task_dir / "state.json").exists():
+                    return str(task_dir)
+        except OSError:
+            pass
+
+    # 2. Worktree detection
+    wt_task_id = _detect_worktree_task_id(tasks_dir)
+    if wt_task_id:
+        task_dir = tasks_dir / wt_task_id
+        if task_dir.exists():
+            return str(task_dir)
+
+    # 3. No crew workflow in this session
+    return None
+
+
 def main():
     if check_env_skip():
         sys.exit(0)
 
-    task_dir = find_active_task()
+    task_dir = _find_session_task()
     if not task_dir:
+        # No crew workflow in this session — allow exit
         sys.exit(0)
 
     state = WorkflowState(task_dir)

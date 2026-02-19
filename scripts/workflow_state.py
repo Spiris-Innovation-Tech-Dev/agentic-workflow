@@ -450,8 +450,10 @@ def _detect_worktree_task_id(tasks_dir: Path) -> Optional[str]:
 def find_active_task() -> Optional[str]:
     """Find the currently active task directory.
 
-    In a worktree, returns only the task that owns this worktree.
-    In a normal repo, returns the most recently updated incomplete task.
+    Priority:
+    1. Worktree detection (match cwd to worktree paths)
+    2. .tasks/.active_task file (session-local marker from crew_orchestrator)
+    3. Fallback: most recently updated incomplete task
     """
     tasks_dir = _resolve_tasks_dir()
     if not tasks_dir.exists():
@@ -465,7 +467,24 @@ def find_active_task() -> Optional[str]:
             return str(task_dir)
         return None
 
-    # Normal repo: find the most recently updated incomplete task
+    # Check .active_task file (session-local marker written by crew_orchestrator)
+    active_file = tasks_dir / ".active_task"
+    if active_file.exists():
+        try:
+            task_id = active_file.read_text().strip()
+            if task_id:
+                task_dir = tasks_dir / task_id
+                state_file = task_dir / "state.json"
+                if state_file.exists():
+                    with open(state_file) as f:
+                        state = json.load(f)
+                    # Only use if task isn't completed (stale marker)
+                    if state.get("status") != "completed":
+                        return str(task_dir)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Fallback: find the most recently updated incomplete task
     active_tasks = []
     for task_dir in tasks_dir.iterdir():
         if task_dir.is_dir():

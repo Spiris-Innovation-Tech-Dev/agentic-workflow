@@ -185,7 +185,24 @@ def _find_active_task_dir() -> Optional[Path]:
             return task_dir
         return None
 
-    # Normal repo: find the most recently updated incomplete task
+    # Check .active_task file (session-local marker written by crew_orchestrator)
+    active_file = tasks_dir / ".active_task"
+    if active_file.exists():
+        try:
+            task_id = active_file.read_text().strip()
+            if task_id:
+                task_dir = tasks_dir / task_id
+                state_file = task_dir / "state.json"
+                if state_file.exists():
+                    with open(state_file) as f:
+                        state = json.load(f)
+                    # Only use if task isn't completed (stale marker cleanup)
+                    if state.get("status") != "completed":
+                        return task_dir
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Fallback: find the most recently updated incomplete task
     active_tasks = []
     for task_dir in tasks_dir.iterdir():
         if task_dir.is_dir():
@@ -193,10 +210,20 @@ def _find_active_task_dir() -> Optional[Path]:
             if state_file.exists():
                 with open(state_file) as f:
                     state = json.load(f)
+                    # Skip completed tasks
+                    if state.get("status") == "completed":
+                        continue
+                    # Skip tasks with active worktrees — they're worked on elsewhere
+                    wt = state.get("worktree")
+                    if wt and wt.get("status") == "active":
+                        continue
                     completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
                     if state.get("phase"):
                         completed.add(_normalize_phase(state["phase"]))
-                    missing = [p for p in REQUIRED_PHASES if p not in completed]
+                    # Use mode-specific phases if available
+                    mode_phases = state.get("workflow_mode", {}).get("phases")
+                    required = [_normalize_phase(p) for p in mode_phases] if mode_phases else REQUIRED_PHASES
+                    missing = [p for p in required if p not in completed]
                     if missing:
                         active_tasks.append((task_dir, state.get("updated_at", "")))
 
@@ -541,11 +568,25 @@ def workflow_is_complete(task_id: Optional[str] = None) -> dict[str, Any]:
 
     state = _load_state(task_dir)
 
+    # Check explicit completion status first
+    if state.get("status") == "completed":
+        completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
+        return {
+            "is_complete": True,
+            "missing_phases": [],
+            "phases_completed": list(completed),
+            "task_id": state.get("task_id")
+        }
+
     completed = set(_normalize_phase(p) for p in state.get("phases_completed", []))
     if state.get("phase"):
         completed.add(_normalize_phase(state["phase"]))
 
-    missing = [p for p in REQUIRED_PHASES if p not in completed]
+    # Use mode-specific phases if available, otherwise fall back to REQUIRED_PHASES
+    mode_phases = state.get("workflow_mode", {}).get("phases")
+    required = [_normalize_phase(p) for p in mode_phases] if mode_phases else REQUIRED_PHASES
+
+    missing = [p for p in required if p not in completed]
     is_complete = len(missing) == 0
 
     return {
@@ -590,6 +631,14 @@ def workflow_can_stop(task_id: Optional[str] = None) -> dict[str, Any]:
 
     state = _load_state(task_dir)
 
+    # Check explicit completion status first
+    if state.get("status") == "completed":
+        return {
+            "can_stop": True,
+            "reason": "Workflow completed",
+            "task_id": state.get("task_id")
+        }
+
     if state.get("phase") is None:
         return {
             "can_stop": True,
@@ -611,7 +660,11 @@ def workflow_can_stop(task_id: Optional[str] = None) -> dict[str, Any]:
     if state.get("phase"):
         completed.add(_normalize_phase(state["phase"]))
 
-    missing = [p for p in REQUIRED_PHASES if p not in completed]
+    # Use mode-specific phases if available, otherwise fall back to REQUIRED_PHASES
+    mode_phases = state.get("workflow_mode", {}).get("phases")
+    required = [_normalize_phase(p) for p in mode_phases] if mode_phases else REQUIRED_PHASES
+
+    missing = [p for p in required if p not in completed]
 
     if not missing:
         return {

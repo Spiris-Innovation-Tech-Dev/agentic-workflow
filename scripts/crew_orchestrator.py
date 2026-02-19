@@ -45,10 +45,82 @@ from agentic_workflow_server.state_tools import (
     workflow_transition,
     workflow_log_interaction,
     find_task_dir,
+    get_tasks_dir,
     _load_state,
     _save_state,
 )
 from agentic_workflow_server.config_tools import config_get_effective
+
+
+ACTIVE_TASK_FILE = ".active_task"
+
+
+def _write_active_task(task_id: str) -> None:
+    """Write the active task ID to .tasks/.active_task for session isolation.
+
+    Uses FileLock to prevent race conditions between concurrent sessions.
+    """
+    from filelock import FileLock
+
+    tasks_dir = get_tasks_dir()
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    active_file = tasks_dir / ACTIVE_TASK_FILE
+    lock_file = tasks_dir / f"{ACTIVE_TASK_FILE}.lock"
+    with FileLock(str(lock_file)):
+        active_file.write_text(task_id + "\n")
+
+
+def _remove_active_task(task_id: str) -> None:
+    """Remove .tasks/.active_task if it matches the given task ID.
+
+    Uses FileLock and atomic check-then-delete to prevent TOCTOU races.
+    """
+    from filelock import FileLock
+
+    tasks_dir = get_tasks_dir()
+    active_file = tasks_dir / ACTIVE_TASK_FILE
+    lock_file = tasks_dir / f"{ACTIVE_TASK_FILE}.lock"
+    try:
+        with FileLock(str(lock_file)):
+            if active_file.exists():
+                current = active_file.read_text().strip()
+                if current == task_id:
+                    active_file.unlink()
+    except OSError:
+        pass
+
+
+def _read_active_task() -> str | None:
+    """Read the active task ID from .tasks/.active_task.
+
+    Returns None if the file doesn't exist, is empty, or points to a
+    completed/nonexistent task (stale marker from a crashed session).
+    """
+    tasks_dir = get_tasks_dir()
+    active_file = tasks_dir / ACTIVE_TASK_FILE
+    if not active_file.exists():
+        return None
+    try:
+        task_id = active_file.read_text().strip()
+        if not task_id:
+            return None
+        # Validate the task still exists and isn't completed
+        task_dir = tasks_dir / task_id
+        state_file = task_dir / "state.json"
+        if not state_file.exists():
+            return None
+        with open(state_file) as f:
+            state = json.load(f)
+        if state.get("status") == "completed":
+            # Stale marker from a previous session — clean it up
+            try:
+                active_file.unlink()
+            except OSError:
+                pass
+            return None
+        return task_id
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _output(data: dict) -> None:
@@ -85,6 +157,7 @@ def cmd_init(args: argparse.Namespace) -> None:
             _output({"error": True, "errors": [resume["error"]]})
             return
         next_action = crew_get_next_phase(task_id=task_id)
+        _write_active_task(task_id)
         _output({
             "action": "resume",
             "resume_state": resume,
@@ -140,6 +213,8 @@ def cmd_init(args: argparse.Namespace) -> None:
             current_state = _load_state(task_dir_path)
             if current_state.get("phase") != first_phase:
                 workflow_transition(to_phase=first_phase, task_id=task_id)
+
+    _write_active_task(task_id)
 
     _output({
         "action": "start",
@@ -362,6 +437,9 @@ def cmd_complete(args: argparse.Namespace) -> None:
             state["files_changed"] = files_changed
         _save_state(task_dir, state)
 
+    # Remove session-local active task marker
+    _remove_active_task(task_id)
+
     completion["jira_actions"] = jira_actions
     _output(completion)
 
@@ -395,6 +473,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
         return
 
     next_action = crew_get_next_phase(task_id=task_id)
+    _write_active_task(task_id)
 
     _output({
         "action": "resume",

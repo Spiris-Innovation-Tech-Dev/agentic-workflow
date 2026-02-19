@@ -58,12 +58,20 @@ def clean_tasks_dir():
             if d.is_dir():
                 shutil.rmtree(d)
 
+    # Clean .active_task if leftover from previous test
+    active_file = tasks_dir / ".active_task"
+    if active_file.exists():
+        active_file.unlink()
+
     yield tasks_dir
 
     for pattern in prefixes:
         for d in tasks_dir.glob(pattern):
             if d.is_dir():
                 shutil.rmtree(d)
+
+    if active_file.exists():
+        active_file.unlink()
 
 
 # ============================================================================
@@ -440,3 +448,103 @@ class TestStateUpdates:
         task_dir = clean_tasks_dir / "TASK_CO_SU_004"
         state = _load_state(task_dir)
         assert "architect" in state.get("phases_completed", [])
+
+
+# ============================================================================
+# .active_task session isolation
+# ============================================================================
+
+class TestActiveTaskLifecycle:
+    """Tests for .tasks/.active_task file created on init/resume, removed on complete."""
+
+    def test_init_creates_active_task(self, clean_tasks_dir):
+        """cmd_init start writes .tasks/.active_task with the task ID."""
+        active_file = clean_tasks_dir / ".active_task"
+        if active_file.exists():
+            active_file.unlink()
+
+        result = run_orchestrator("init", "--args", '"Test active task" --mode minimal')
+        assert result["action"] == "start"
+        task_id = result["task_id"]
+
+        assert active_file.exists(), ".active_task should be created on init"
+        assert active_file.read_text().strip() == task_id
+
+        # Clean up
+        task_dir = clean_tasks_dir / task_id
+        if task_dir.exists():
+            shutil.rmtree(task_dir)
+        if active_file.exists():
+            active_file.unlink()
+
+    def test_complete_removes_active_task(self, clean_tasks_dir):
+        """cmd_complete removes .tasks/.active_task when it matches the task ID."""
+        active_file = clean_tasks_dir / ".active_task"
+
+        workflow_initialize(task_id="TASK_CO_AT_001", description="Test removal")
+        workflow_set_mode(mode="minimal", task_id="TASK_CO_AT_001")
+
+        # Simulate what init would do
+        active_file.write_text("TASK_CO_AT_001\n")
+        assert active_file.exists()
+
+        run_orchestrator("complete", "--task-id", "TASK_CO_AT_001")
+
+        assert not active_file.exists(), ".active_task should be removed on complete"
+
+    def test_complete_preserves_other_active_task(self, clean_tasks_dir):
+        """cmd_complete does NOT remove .active_task if it belongs to a different task."""
+        active_file = clean_tasks_dir / ".active_task"
+
+        workflow_initialize(task_id="TASK_CO_AT_002", description="Test preserve")
+        workflow_set_mode(mode="minimal", task_id="TASK_CO_AT_002")
+
+        # .active_task points to a different task
+        active_file.write_text("TASK_CO_AT_OTHER\n")
+
+        run_orchestrator("complete", "--task-id", "TASK_CO_AT_002")
+
+        assert active_file.exists(), ".active_task should be preserved for other task"
+        assert active_file.read_text().strip() == "TASK_CO_AT_OTHER"
+
+        # Clean up
+        if active_file.exists():
+            active_file.unlink()
+
+    def test_resume_creates_active_task(self, clean_tasks_dir):
+        """cmd_resume writes .tasks/.active_task with the task ID."""
+        active_file = clean_tasks_dir / ".active_task"
+        if active_file.exists():
+            active_file.unlink()
+
+        workflow_initialize(task_id="TASK_CO_AT_003", description="Test resume")
+        workflow_set_mode(mode="full", task_id="TASK_CO_AT_003")
+
+        result = run_orchestrator("resume", "--task-id", "TASK_CO_AT_003")
+        assert result["action"] == "resume"
+
+        assert active_file.exists(), ".active_task should be created on resume"
+        assert active_file.read_text().strip() == "TASK_CO_AT_003"
+
+        # Clean up
+        if active_file.exists():
+            active_file.unlink()
+
+    def test_init_resume_creates_active_task(self, clean_tasks_dir):
+        """cmd_init with 'resume TASK_ID' also writes .active_task."""
+        active_file = clean_tasks_dir / ".active_task"
+        if active_file.exists():
+            active_file.unlink()
+
+        workflow_initialize(task_id="TASK_CO_AT_004", description="Test init resume")
+        workflow_set_mode(mode="full", task_id="TASK_CO_AT_004")
+
+        result = run_orchestrator("init", "--args", "resume TASK_CO_AT_004")
+        assert result["action"] == "resume"
+
+        assert active_file.exists(), ".active_task should be created on init resume"
+        assert active_file.read_text().strip() == "TASK_CO_AT_004"
+
+        # Clean up
+        if active_file.exists():
+            active_file.unlink()

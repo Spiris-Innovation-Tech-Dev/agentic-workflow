@@ -95,6 +95,10 @@ from agentic_workflow_server.state_tools import (
     workflow_log_interaction,
     # Helpers
     get_tasks_dir,
+    find_task_dir,
+    _find_active_task_dir,
+    _load_state,
+    _save_state,
     DISCOVERY_CATEGORIES,
     INTERACTION_ROLES,
     INTERACTION_TYPES,
@@ -614,6 +618,236 @@ class TestWorkflowModes:
 
             result = workflow_is_phase_in_mode("technical_writer", task_id=task_id)
             assert result["in_mode"] is True, f"technical_writer should be in {mode} mode"
+
+
+class TestCompletionConsistency:
+    """Test that is_complete/can_stop respect status==completed and workflow_mode.phases."""
+
+    def test_is_complete_when_status_completed(self, clean_tasks_dir):
+        """workflow_is_complete returns True when state.status == 'completed'."""
+        workflow_initialize(task_id="TASK_TEST_CC_001")
+        # Manually mark completed without completing all phases
+        task_dir = clean_tasks_dir / "TASK_TEST_CC_001"
+        state_file = task_dir / "state.json"
+        state = json.loads(state_file.read_text())
+        state["status"] = "completed"
+        state_file.write_text(json.dumps(state))
+
+        result = workflow_is_complete(task_id="TASK_TEST_CC_001")
+        assert result["is_complete"] is True
+        assert result["missing_phases"] == []
+
+    def test_is_complete_respects_mode_phases(self, clean_tasks_dir):
+        """workflow_is_complete uses workflow_mode.phases instead of REQUIRED_PHASES."""
+        workflow_initialize(task_id="TASK_TEST_CC_002")
+        workflow_set_mode("minimal", task_id="TASK_TEST_CC_002")
+        # Minimal mode: developer, implementer, technical_writer
+        # Complete all minimal phases
+        workflow_transition("developer", task_id="TASK_TEST_CC_002")
+        workflow_complete_phase(task_id="TASK_TEST_CC_002")
+        workflow_transition("implementer", task_id="TASK_TEST_CC_002")
+        workflow_complete_phase(task_id="TASK_TEST_CC_002")
+        workflow_transition("technical_writer", task_id="TASK_TEST_CC_002")
+        workflow_complete_phase(task_id="TASK_TEST_CC_002")
+
+        result = workflow_is_complete(task_id="TASK_TEST_CC_002")
+        assert result["is_complete"] is True
+        # architect and reviewer are NOT required in minimal mode
+
+    def test_can_stop_when_status_completed(self, clean_tasks_dir):
+        """workflow_can_stop returns True when state.status == 'completed'."""
+        workflow_initialize(task_id="TASK_TEST_CC_003")
+        # Mark completed without all phases done
+        task_dir = clean_tasks_dir / "TASK_TEST_CC_003"
+        state_file = task_dir / "state.json"
+        state = json.loads(state_file.read_text())
+        state["status"] = "completed"
+        state_file.write_text(json.dumps(state))
+
+        result = workflow_can_stop(task_id="TASK_TEST_CC_003")
+        assert result["can_stop"] is True
+        assert "completed" in result["reason"].lower()
+
+    def test_can_stop_respects_mode_phases(self, clean_tasks_dir):
+        """workflow_can_stop uses workflow_mode.phases instead of REQUIRED_PHASES."""
+        workflow_initialize(task_id="TASK_TEST_CC_004")
+        workflow_set_mode("minimal", task_id="TASK_TEST_CC_004")
+        # Complete all minimal phases
+        workflow_transition("developer", task_id="TASK_TEST_CC_004")
+        workflow_complete_phase(task_id="TASK_TEST_CC_004")
+        workflow_transition("implementer", task_id="TASK_TEST_CC_004")
+        workflow_complete_phase(task_id="TASK_TEST_CC_004")
+        workflow_transition("technical_writer", task_id="TASK_TEST_CC_004")
+        workflow_complete_phase(task_id="TASK_TEST_CC_004")
+
+        result = workflow_can_stop(task_id="TASK_TEST_CC_004")
+        assert result["can_stop"] is True
+
+    def test_can_stop_blocks_incomplete_mode_phases(self, clean_tasks_dir):
+        """workflow_can_stop blocks when mode-specific phases are incomplete."""
+        workflow_initialize(task_id="TASK_TEST_CC_005")
+        workflow_set_mode("minimal", task_id="TASK_TEST_CC_005")
+        # Only complete developer — missing implementer and technical_writer
+        workflow_transition("developer", task_id="TASK_TEST_CC_005")
+        workflow_complete_phase(task_id="TASK_TEST_CC_005")
+
+        result = workflow_can_stop(task_id="TASK_TEST_CC_005")
+        assert result["can_stop"] is False
+        assert len(result["missing_phases"]) > 0
+
+
+class TestFindActiveTaskIsolation:
+    """Test that _find_active_task_dir skips completed and worktree-active tasks,
+    never modifying their state."""
+
+    def test_skips_completed_task(self, clean_tasks_dir):
+        """A task with status=completed is never returned as the active task."""
+        workflow_initialize(task_id="TASK_TEST_ISO_001")
+        # Mark completed without finishing all phases
+        task_dir = clean_tasks_dir / "TASK_TEST_ISO_001"
+        state = _load_state(task_dir)
+        state["status"] = "completed"
+        _save_state(task_dir, state)
+
+        result = _find_active_task_dir()
+        # Should not return the completed task
+        assert result is None or result.name != "TASK_TEST_ISO_001"
+
+    def test_skips_worktree_active_task(self, clean_tasks_dir):
+        """A task with worktree.status=active is skipped (worked on elsewhere)."""
+        workflow_initialize(task_id="TASK_TEST_ISO_002")
+        task_dir = clean_tasks_dir / "TASK_TEST_ISO_002"
+        state = _load_state(task_dir)
+        state["worktree"] = {"status": "active", "path": "/tmp/fake-worktree"}
+        _save_state(task_dir, state)
+
+        result = _find_active_task_dir()
+        assert result is None or result.name != "TASK_TEST_ISO_002"
+
+    def test_completed_task_state_not_modified(self, clean_tasks_dir):
+        """Calling _find_active_task_dir does not mutate completed task state."""
+        workflow_initialize(task_id="TASK_TEST_ISO_003")
+        task_dir = clean_tasks_dir / "TASK_TEST_ISO_003"
+        state = _load_state(task_dir)
+        state["status"] = "completed"
+        _save_state(task_dir, state)
+
+        # Snapshot the state file content
+        state_file = task_dir / "state.json"
+        before = state_file.read_text()
+
+        _find_active_task_dir()
+
+        after = state_file.read_text()
+        assert before == after, "completed task state.json was modified by _find_active_task_dir"
+
+    def test_worktree_active_task_state_not_modified(self, clean_tasks_dir):
+        """Calling _find_active_task_dir does not mutate worktree-active task state."""
+        workflow_initialize(task_id="TASK_TEST_ISO_004")
+        task_dir = clean_tasks_dir / "TASK_TEST_ISO_004"
+        state = _load_state(task_dir)
+        state["worktree"] = {"status": "active", "path": "/tmp/fake-worktree"}
+        _save_state(task_dir, state)
+
+        state_file = task_dir / "state.json"
+        before = state_file.read_text()
+
+        _find_active_task_dir()
+
+        after = state_file.read_text()
+        assert before == after, "worktree-active task state.json was modified by _find_active_task_dir"
+
+    def test_returns_incomplete_task_over_completed(self, clean_tasks_dir):
+        """With one completed and one incomplete task, returns the incomplete one."""
+        # Completed task
+        workflow_initialize(task_id="TASK_TEST_ISO_005")
+        td1 = clean_tasks_dir / "TASK_TEST_ISO_005"
+        s1 = _load_state(td1)
+        s1["status"] = "completed"
+        _save_state(td1, s1)
+
+        # Incomplete task
+        workflow_initialize(task_id="TASK_TEST_ISO_006")
+
+        result = _find_active_task_dir()
+        assert result is not None
+        assert result.name == "TASK_TEST_ISO_006"
+
+    def test_find_task_dir_none_returns_active_not_completed(self, clean_tasks_dir):
+        """find_task_dir(None) delegates to _find_active_task_dir and skips completed."""
+        workflow_initialize(task_id="TASK_TEST_ISO_007")
+        td = clean_tasks_dir / "TASK_TEST_ISO_007"
+        state = _load_state(td)
+        state["status"] = "completed"
+        _save_state(td, state)
+
+        result = find_task_dir(None)
+        assert result is None or result.name != "TASK_TEST_ISO_007"
+
+    def test_find_task_dir_explicit_id_still_works_for_completed(self, clean_tasks_dir):
+        """find_task_dir with explicit ID returns it even if completed (intentional lookup)."""
+        workflow_initialize(task_id="TASK_TEST_ISO_008")
+        td = clean_tasks_dir / "TASK_TEST_ISO_008"
+        state = _load_state(td)
+        state["status"] = "completed"
+        _save_state(td, state)
+
+        result = find_task_dir("TASK_TEST_ISO_008")
+        assert result is not None
+        assert result.name == "TASK_TEST_ISO_008"
+
+    def test_active_task_file_preferred_over_scan(self, clean_tasks_dir):
+        """When .active_task points to a valid task, use it instead of scanning."""
+        # Create two incomplete tasks
+        workflow_initialize(task_id="TASK_TEST_ISO_009")
+        workflow_initialize(task_id="TASK_TEST_ISO_010")
+
+        # .active_task points to the older task
+        active_file = clean_tasks_dir / ".active_task"
+        active_file.write_text("TASK_TEST_ISO_009\n")
+
+        result = _find_active_task_dir()
+        assert result is not None
+        assert result.name == "TASK_TEST_ISO_009"
+
+        active_file.unlink()
+
+    def test_stale_active_task_file_ignored(self, clean_tasks_dir):
+        """A .active_task pointing to a completed task is ignored and cleaned up."""
+        workflow_initialize(task_id="TASK_TEST_ISO_011")
+        td = clean_tasks_dir / "TASK_TEST_ISO_011"
+        state = _load_state(td)
+        state["status"] = "completed"
+        _save_state(td, state)
+
+        # Stale .active_task from crashed session
+        active_file = clean_tasks_dir / ".active_task"
+        active_file.write_text("TASK_TEST_ISO_011\n")
+
+        result = _find_active_task_dir()
+        # Should NOT return the completed task
+        assert result is None or result.name != "TASK_TEST_ISO_011"
+
+    def test_active_task_file_nonexistent_task_ignored(self, clean_tasks_dir):
+        """A .active_task pointing to a nonexistent task dir is ignored."""
+        active_file = clean_tasks_dir / ".active_task"
+        active_file.write_text("TASK_DOES_NOT_EXIST\n")
+
+        result = _find_active_task_dir()
+        assert result is None or result.name != "TASK_DOES_NOT_EXIST"
+
+        active_file.unlink()
+
+    def test_active_task_file_empty_ignored(self, clean_tasks_dir):
+        """An empty .active_task file is ignored."""
+        active_file = clean_tasks_dir / ".active_task"
+        active_file.write_text("\n")
+
+        result = _find_active_task_dir()
+        # Should fall back to scan, not crash
+        assert result is None or True  # just verify no exception
+
+        active_file.unlink()
 
 
 class TestCostTracking:

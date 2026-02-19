@@ -24,6 +24,7 @@
       "mcp__agentic-workflow__workflow_log_interaction",
       "mcp__agentic-workflow__config_get_effective",
       "Bash(python3:*)",
+      "Bash(ls:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
