@@ -93,6 +93,53 @@ fi
 cp "$SCRIPT_DIR/config/workflow-config.yaml" "$CLAUDE_DIR/"
 echo "  ✓ workflow-config.yaml"
 
+# Copy worktree permissions template
+mkdir -p "$CLAUDE_DIR/config"
+cp "$SCRIPT_DIR/config/worktree-permissions.json" "$CLAUDE_DIR/config/"
+echo "  ✓ worktree-permissions.json"
+
+# Add default worktree base to additionalDirectories for global access
+echo ""
+echo "Configuring worktree permissions..."
+python3 -c "
+import json, os
+settings_file = os.path.expanduser('~/.claude/settings.local.json')
+d = json.load(open(settings_file)) if os.path.isfile(settings_file) else {}
+dirs = d.setdefault('additionalDirectories', [])
+repo = os.path.dirname(os.path.abspath('$SCRIPT_DIR'))
+wt_base = os.path.normpath(os.path.join(repo, '..', os.path.basename(repo) + '-worktrees'))
+if wt_base not in dirs:
+    dirs.append(wt_base)
+    with open(settings_file, 'w') as f:
+        json.dump(d, f, indent=2)
+        f.write('\n')
+    print('  Added worktree base to additionalDirectories: ' + wt_base)
+else:
+    print('  Worktree base already in additionalDirectories')
+" 2>/dev/null && echo "  ✓ Claude settings updated" || echo "  ⚠ Could not update Claude settings (non-fatal)"
+
+# Add worktree base to Gemini trustedFolders (if ~/.gemini/ exists)
+if [ -d "$HOME/.gemini" ]; then
+  python3 -c "
+import json, os
+trust_file = os.path.expanduser('~/.gemini/trustedFolders.json')
+d = {}
+if os.path.isfile(trust_file):
+    with open(trust_file) as f:
+        d = json.load(f)
+repo = os.path.dirname(os.path.abspath('$SCRIPT_DIR'))
+wt_base = os.path.normpath(os.path.join(repo, '..', os.path.basename(repo) + '-worktrees'))
+if wt_base not in d:
+    d[wt_base] = 'TRUST_FOLDER'
+    with open(trust_file, 'w') as f:
+        json.dump(d, f, indent=2)
+        f.write('\n')
+    print('  Added worktree base to Gemini trustedFolders: ' + wt_base)
+else:
+    print('  Worktree base already in Gemini trustedFolders')
+" 2>/dev/null && echo "  ✓ Gemini settings updated" || echo "  ⚠ Could not update Gemini settings (non-fatal)"
+fi
+
 # Install MCP server
 echo ""
 echo "Installing MCP server..."

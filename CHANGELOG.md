@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-02-19
+
+### Added
+- **Crew interaction history logging** — `workflow_log_interaction` MCP tool appends structured entries to `.tasks/TASK_XXX/interactions.jsonl`, capturing human-AI conversation throughout the `/crew` workflow for documentation and context recovery
+- `log-interaction` subcommand in `crew_orchestrator.py` — CLI wrapper for the MCP tool, callable from all platforms
+- `--question` flag on `checkpoint-done` — logs both the checkpoint question and user response to `interactions.jsonl` automatically
+- Interaction logging instructions in `crew.md` at init, checkpoint, escalation, and ad-hoc guidance points
+- `workflow_log_interaction` added to worktree permissions template
+- 9 new tests in `TestInteractionLogging`
+
 ## [0.5.0] - 2026-02-19
 
 ### Added

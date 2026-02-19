@@ -29,6 +29,8 @@ from agentic_workflow_server.state_tools import (
     workflow_set_mode,
     workflow_set_implementation_progress,
     workflow_complete_step,
+    find_task_dir,
+    _load_state,
 )
 
 
@@ -350,3 +352,91 @@ class TestFullSequence:
         # After all phases, next should be complete
         final_next = agent_done["next"]
         assert final_next.get("action") in ("complete", "checkpoint")
+
+
+# ============================================================================
+# State update tests
+# ============================================================================
+
+class TestStateUpdates:
+    """Tests for state.json updates that the orchestrator now owns."""
+
+    def test_agent_done_transitions_to_next_phase(self, clean_tasks_dir):
+        """After agent-done, state.json phase should reflect the next agent."""
+        workflow_initialize(task_id="TASK_CO_SU_001", description="Test state update")
+        workflow_set_mode(mode="full", task_id="TASK_CO_SU_001")
+        # Start at architect phase
+        workflow_transition(to_phase="architect", task_id="TASK_CO_SU_001")
+
+        # Create dummy output
+        task_dir = clean_tasks_dir / "TASK_CO_SU_001"
+        output_file = task_dir / "architect.md"
+        output_file.write_text("# Architecture\nDesign done.\n")
+
+        result = run_orchestrator(
+            "agent-done",
+            "--task-id", "TASK_CO_SU_001",
+            "--agent", "architect",
+            "--output-file", str(output_file),
+        )
+        assert result["phase_completed"] is True
+
+        # If the next action is spawn_agent, state.json should have transitioned
+        if result["next"].get("action") == "spawn_agent":
+            expected_phase = result["next"]["agent"]
+            assert result.get("transitioned_to") == expected_phase
+            # Verify state.json on disk
+            state = _load_state(task_dir)
+            assert state["phase"] == expected_phase
+
+    def test_init_turbo_sets_correct_first_phase(self, clean_tasks_dir):
+        """In turbo mode, state.json phase should be 'developer', not 'architect'."""
+        result = run_orchestrator("init", "--args", '"Build feature" --mode turbo')
+        assert result["action"] == "start"
+        task_id = result["task_id"]
+        task_dir = clean_tasks_dir / task_id
+
+        # Turbo mode skips architect — first phase should be developer
+        if result["next"].get("action") == "spawn_agent":
+            first_agent = result["next"]["agent"]
+            state = _load_state(task_dir)
+            assert state["phase"] == first_agent
+            # Turbo mode should start with developer, not architect
+            assert first_agent == "developer"
+
+    def test_complete_marks_state_done(self, clean_tasks_dir):
+        """After complete, state.json should have status='completed' and completed_at."""
+        workflow_initialize(task_id="TASK_CO_SU_003", description="Test completion")
+        workflow_set_mode(mode="fast", task_id="TASK_CO_SU_003")
+
+        result = run_orchestrator(
+            "complete",
+            "--task-id", "TASK_CO_SU_003",
+            "--files", "src/main.py,src/utils.py",
+        )
+        assert result["task_id"] == "TASK_CO_SU_003"
+
+        # Verify state.json has completion markers
+        task_dir = clean_tasks_dir / "TASK_CO_SU_003"
+        state = _load_state(task_dir)
+        assert state["status"] == "completed"
+        assert "completed_at" in state
+        assert state["files_changed"] == ["src/main.py", "src/utils.py"]
+
+    def test_checkpoint_approve_completes_phase(self, clean_tasks_dir):
+        """Approving at checkpoint should mark phase complete in state.json."""
+        workflow_initialize(task_id="TASK_CO_SU_004", description="Test checkpoint")
+        workflow_set_mode(mode="full", task_id="TASK_CO_SU_004")
+        workflow_transition(to_phase="architect", task_id="TASK_CO_SU_004")
+
+        result = run_orchestrator(
+            "checkpoint-done",
+            "--task-id", "TASK_CO_SU_004",
+            "--decision", "approve",
+        )
+        assert result["decision"] == "approve"
+
+        # Verify phase is in phases_completed
+        task_dir = clean_tasks_dir / "TASK_CO_SU_004"
+        state = _load_state(task_dir)
+        assert "architect" in state.get("phases_completed", [])

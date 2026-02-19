@@ -90,6 +90,8 @@ from .state_tools import (
     workflow_get_worktree_info,
     workflow_cleanup_worktree,
     workflow_get_launch_command,
+    # Interaction logging
+    workflow_log_interaction,
 )
 from .config_tools import (
     config_get_effective,
@@ -1295,6 +1297,46 @@ TOOLS = [
             "required": []
         }
     ),
+    # Interaction Logging
+    Tool(
+        name="workflow_log_interaction",
+        description="Append an interaction entry to the task's interactions.jsonl log. Captures human-AI conversation throughout the crew workflow.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string",
+                    "description": "Who is speaking",
+                    "enum": ["human", "agent", "system"]
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The message or input text"
+                },
+                "interaction_type": {
+                    "type": "string",
+                    "description": "Type of interaction",
+                    "enum": ["message", "checkpoint_question", "checkpoint_response", "guidance", "escalation_question", "escalation_response"],
+                    "default": "message"
+                },
+                "agent": {
+                    "type": "string",
+                    "description": "Which agent context (e.g., 'architect', 'orchestrator')",
+                    "default": ""
+                },
+                "phase": {
+                    "type": "string",
+                    "description": "Current workflow phase",
+                    "default": ""
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier. If not provided, uses active task."
+                }
+            },
+            "required": ["role", "content"]
+        }
+    ),
     # Orchestration Tools (crew.md extraction)
     Tool(
         name="crew_parse_args",
@@ -1553,6 +1595,8 @@ TOOL_DISPATCH_TABLE = {
     "workflow_get_worktree_info": workflow_get_worktree_info,
     "workflow_cleanup_worktree": workflow_cleanup_worktree,
     "workflow_get_launch_command": workflow_get_launch_command,
+    # Interaction logging
+    "workflow_log_interaction": workflow_log_interaction,
     # Orchestration tools
     "crew_parse_args": crew_parse_args,
     "crew_init_task": crew_init_task,

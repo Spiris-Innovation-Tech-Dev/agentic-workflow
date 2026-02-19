@@ -317,14 +317,25 @@ class WorkflowState:
         """
         Check if workflow is complete (all required phases done).
 
+        Respects workflow_mode phases if set (turbo/fast/minimal skip some phases).
+        Falls back to REQUIRED_PHASES for workflows without a mode.
+
         Returns:
             Tuple of (is_complete, missing_phase or None)
         """
+        # Check explicit completion status first
+        if self._state.get("status") == "completed":
+            return True, None
+
         completed = set(normalize_phase(p) for p in self.phases_completed)
         if self.phase:
             completed.add(normalize_phase(self.phase))
 
-        for phase in REQUIRED_PHASES:
+        # Use mode-specific phases if available, otherwise fall back to REQUIRED_PHASES
+        mode_phases = self._state.get("workflow_mode", {}).get("phases")
+        required = [normalize_phase(p) for p in mode_phases] if mode_phases else REQUIRED_PHASES
+
+        for phase in required:
             if phase not in completed:
                 return False, phase
 
@@ -462,6 +473,10 @@ def find_active_task() -> Optional[str]:
             if state_file.exists():
                 with open(state_file) as f:
                     state = json.load(f)
+                    # Skip tasks with active worktrees — they're worked on elsewhere
+                    wt = state.get("worktree")
+                    if wt and wt.get("status") == "active":
+                        continue
                     complete, _ = WorkflowState(str(task_dir)).is_complete()
                     if not complete:
                         active_tasks.append((task_dir, state.get("updated_at", "")))

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__agentic-workflow__workflow_initialize",
+      "mcp__agentic-workflow__workflow_detect_mode",
+      "mcp__agentic-workflow__workflow_set_mode",
+      "mcp__agentic-workflow__workflow_transition",
+      "mcp__agentic-workflow__workflow_complete_phase",
+      "mcp__agentic-workflow__workflow_add_human_decision",
+      "mcp__agentic-workflow__workflow_save_discovery",
+      "mcp__agentic-workflow__workflow_get_discoveries",
+      "mcp__agentic-workflow__workflow_flush_context",
+      "mcp__agentic-workflow__workflow_add_concern",
+      "mcp__agentic-workflow__workflow_address_concern",
+      "mcp__agentic-workflow__workflow_get_concerns",
+      "mcp__agentic-workflow__workflow_mark_docs_needed",
+      "mcp__agentic-workflow__workflow_set_implementation_progress",
+      "mcp__agentic-workflow__workflow_complete_step",
+      "mcp__agentic-workflow__workflow_add_assertion",
+      "mcp__agentic-workflow__workflow_verify_assertion",
+      "mcp__agentic-workflow__workflow_get_assertions",
+      "mcp__agentic-workflow__workflow_record_cost",
+      "mcp__agentic-workflow__workflow_get_cost_summary",
+      "mcp__agentic-workflow__workflow_log_interaction",
+      "mcp__agentic-workflow__config_get_effective",
+      "Bash(python3:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(bd sync:*)",
+      "Bash(bd show:*)",
+      "Bash(bd update:*)",
+      "Bash(bd list:*)",
+      "Bash(bd close:*)",
+      "Bash(bd comments:*)"
+    ]
+  }
+}

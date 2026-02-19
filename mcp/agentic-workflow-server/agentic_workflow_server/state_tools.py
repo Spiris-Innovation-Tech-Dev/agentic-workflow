@@ -47,6 +47,16 @@ DISCOVERY_CATEGORIES = [
     "preference"
 ]
 
+INTERACTION_ROLES = ["human", "agent", "system"]
+INTERACTION_TYPES = [
+    "message",
+    "checkpoint_question",
+    "checkpoint_response",
+    "guidance",
+    "escalation_question",
+    "escalation_response",
+]
+
 # 8 dark color schemes for worktree terminal tabs.  Cycled by task number.
 # Each entry has: name (WT scheme name), tab (WT tab color), bg (background), fg (foreground).
 CREW_COLOR_SCHEMES = [
@@ -3467,13 +3477,32 @@ def workflow_create_worktree(
 
         main_tasks_abs = os.path.join(main_repo_abs, ".tasks")
 
+        # Locate permissions template
+        perms_tpl = ""
+        for candidate in [
+            os.path.join(main_repo_abs, "config", "worktree-permissions.json"),
+            os.path.expanduser("~/.claude/config/worktree-permissions.json"),
+        ]:
+            if os.path.isfile(candidate):
+                perms_tpl = candidate
+                break
+
         for settings_file in _HOST_SETTINGS.get(ai_host, []):
+            if settings_file == "gemini_trust":
+                setup_commands.append(
+                    f"python3 -c {shlex.quote(_GEMINI_TRUST_SCRIPT)} "
+                    f"{shlex.quote(worktree_abs)}"
+                )
+                continue
             src = os.path.join(main_repo_abs, settings_file)
             dest = os.path.join(worktree_abs, settings_file)
-            setup_commands.append(
+            cmd = (
                 f"python3 -c {shlex.quote(_SETTINGS_PATCH_SCRIPT)} "
                 f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
             )
+            if perms_tpl:
+                cmd += f" {shlex.quote(perms_tpl)}"
+            setup_commands.append(cmd)
 
         return {
             "success": True,
@@ -3511,15 +3540,34 @@ def workflow_create_worktree(
 
     main_tasks_abs = os.path.join(main_repo_abs, ".tasks")
 
+    # Locate permissions template
+    perms_tpl = ""
+    for candidate in [
+        os.path.join(main_repo_abs, "config", "worktree-permissions.json"),
+        os.path.expanduser("~/.claude/config/worktree-permissions.json"),
+    ]:
+        if os.path.isfile(candidate):
+            perms_tpl = candidate
+            break
+
     for settings_file in _HOST_SETTINGS.get(ai_host, []):
+        if settings_file == "gemini_trust":
+            setup_commands.append(
+                f"python3 -c {shlex.quote(_GEMINI_TRUST_SCRIPT)} "
+                f"{shlex.quote(worktree_abs)}"
+            )
+            continue
         src = os.path.join(main_repo_abs, settings_file)
         dest = os.path.join(worktree_abs, settings_file)
-        # Copy settings and inject additionalDirectories so the AI host
-        # can read/write .tasks/ in the parent repo without symlink issues.
-        setup_commands.append(
+        # Copy settings, inject additionalDirectories + baseline permissions
+        # so the AI host can access .tasks/ and use workflow tools without prompts.
+        cmd = (
             f"python3 -c {shlex.quote(_SETTINGS_PATCH_SCRIPT)} "
             f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
         )
+        if perms_tpl:
+            cmd += f" {shlex.quote(perms_tpl)}"
+        setup_commands.append(cmd)
 
     # Build fix_paths_commands for WSL/Windows compatibility.
     # After `git worktree add`, the .git file and .git/worktrees/TASK/gitdir
@@ -3644,15 +3692,34 @@ _AI_HOST_CLI = {
 # Host-specific settings files to copy into worktrees
 _HOST_SETTINGS = {
     "claude": [".claude/settings.local.json"],
-    "gemini": [],
+    "gemini": ["gemini_trust"],
     "copilot": [],
 }
+
+# Python script to add worktree to Gemini trustedFolders.json
+# Args: worktree_abs_path
+_GEMINI_TRUST_SCRIPT = """
+import json, os, sys
+worktree_abs = sys.argv[1]
+trust_file = os.path.expanduser("~/.gemini/trustedFolders.json")
+os.makedirs(os.path.dirname(trust_file), exist_ok=True)
+d = {}
+if os.path.isfile(trust_file):
+    with open(trust_file) as f:
+        d = json.load(f)
+if worktree_abs not in d:
+    d[worktree_abs] = "TRUST_FOLDER"
+    with open(trust_file, "w") as f:
+        json.dump(d, f, indent=2)
+        f.write("\\n")
+"""
 
 # Python script to copy settings and add additionalDirectories for parent .tasks/ access.
 # Args: src_settings_path dest_settings_path parent_tasks_dir
 _SETTINGS_PATCH_SCRIPT = """
 import json, os, sys
 src, dst, tasks_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+perms_tpl = sys.argv[4] if len(sys.argv) > 4 else None
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 d = {}
 if os.path.isfile(src):
@@ -3661,6 +3728,14 @@ if os.path.isfile(src):
 dirs = d.setdefault("additionalDirectories", [])
 if tasks_dir not in dirs:
     dirs.append(tasks_dir)
+if perms_tpl and os.path.isfile(perms_tpl):
+    with open(perms_tpl) as f:
+        tpl = json.load(f)
+    perms = d.setdefault("permissions", {})
+    allow = perms.setdefault("allow", [])
+    for entry in tpl.get("permissions", {}).get("allow", []):
+        if entry not in allow:
+            allow.append(entry)
 with open(dst, "w") as f:
     json.dump(d, f, indent=2)
     f.write("\\n")
@@ -3856,4 +3931,63 @@ def workflow_get_launch_command(
         "worktree_path": worktree_abs_path,
         "color_scheme": scheme["name"],
         "warnings": warnings,
+    }
+
+
+# ── Interaction Logging ──────────────────────────────────────────────
+
+
+def workflow_log_interaction(
+    role: str,
+    content: str,
+    interaction_type: str = "message",
+    agent: str = "",
+    phase: str = "",
+    task_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Append an interaction entry to .tasks/TASK_XXX/interactions.jsonl.
+
+    Captures human-AI conversation throughout the crew workflow for
+    documentation and context recovery.
+    """
+    if role not in INTERACTION_ROLES:
+        return {
+            "success": False,
+            "error": f"Invalid role '{role}'. Must be one of: {', '.join(INTERACTION_ROLES)}"
+        }
+
+    if interaction_type not in INTERACTION_TYPES:
+        return {
+            "success": False,
+            "error": f"Invalid interaction_type '{interaction_type}'. Must be one of: {', '.join(INTERACTION_TYPES)}"
+        }
+
+    task_dir = find_task_dir(task_id)
+    if not task_dir:
+        return {
+            "success": False,
+            "error": "No active task found" if not task_id else f"Task {task_id} not found"
+        }
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "role": role,
+        "content": content,
+        "type": interaction_type,
+        "agent": agent,
+        "phase": phase,
+    }
+
+    interactions_file = task_dir / "interactions.jsonl"
+    lock_file = task_dir / "interactions.jsonl.lock"
+    lock = FileLock(str(lock_file), timeout=5)
+
+    with lock:
+        with open(interactions_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    return {
+        "success": True,
+        "entry": entry,
+        "task_id": task_dir.name,
     }

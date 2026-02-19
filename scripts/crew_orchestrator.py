@@ -19,6 +19,7 @@ Usage:
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Add MCP server package to path so we can import directly
@@ -42,8 +43,10 @@ from agentic_workflow_server.state_tools import (
     workflow_add_human_decision,
     workflow_record_cost,
     workflow_transition,
+    workflow_log_interaction,
     find_task_dir,
     _load_state,
+    _save_state,
 )
 from agentic_workflow_server.config_tools import config_get_effective
 
@@ -129,6 +132,15 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Get first phase action
     next_action = crew_get_next_phase(task_id=task_id)
 
+    # Pre-transition to first phase if it differs from default
+    if next_action.get("action") == "spawn_agent" and next_action.get("agent"):
+        first_phase = next_action["agent"]
+        task_dir_path = find_task_dir(task_id)
+        if task_dir_path:
+            current_state = _load_state(task_dir_path)
+            if current_state.get("phase") != first_phase:
+                workflow_transition(to_phase=first_phase, task_id=task_id)
+
     _output({
         "action": "start",
         "task_id": task_id,
@@ -193,20 +205,29 @@ def cmd_agent_done(args: argparse.Namespace) -> None:
     # 4. Get next action
     next_action = crew_get_next_phase(task_id=task_id)
 
+    # 5. Pre-transition to next phase if spawning an agent
+    transition_result = None
+    if next_action.get("action") == "spawn_agent" and next_action.get("agent"):
+        transition_result = workflow_transition(
+            to_phase=next_action["agent"],
+            task_id=task_id,
+        )
+
     _output({
         "action": "agent_done",
         "parse_result": parse_result,
         "phase_completed": complete_result.get("success", False),
         "cost_recorded": cost_recorded,
         "has_blocking_issues": parse_result.get("has_blocking_issues", False),
+        "transitioned_to": transition_result.get("to_phase") if transition_result else None,
         "next": next_action,
     })
 
 
 def cmd_checkpoint_done(args: argparse.Namespace) -> None:
-    """Record decision, get next action.
+    """Record decision, log interactions, get next action.
 
-    Batches: workflow_add_human_decision → crew_get_next_phase
+    Batches: log interactions → workflow_add_human_decision → crew_get_next_phase
     """
     task_id = args.task_id
     decision = args.decision
@@ -214,10 +235,34 @@ def cmd_checkpoint_done(args: argparse.Namespace) -> None:
     # Determine checkpoint name from current state
     task_dir = find_task_dir(task_id)
     checkpoint_name = "checkpoint"
+    phase = "unknown"
     if task_dir:
         state = _load_state(task_dir)
         phase = state.get("phase", "unknown")
         checkpoint_name = f"after_{phase}"
+
+    # 0. Log checkpoint question and response to interactions.jsonl
+    if args.question:
+        workflow_log_interaction(
+            role="agent",
+            content=args.question,
+            interaction_type="checkpoint_question",
+            agent="orchestrator",
+            phase=phase,
+            task_id=task_id,
+        )
+
+    response_content = decision
+    if args.notes:
+        response_content = f"{decision}: {args.notes}"
+    workflow_log_interaction(
+        role="human",
+        content=response_content,
+        interaction_type="checkpoint_response",
+        agent="orchestrator",
+        phase=phase,
+        task_id=task_id,
+    )
 
     # 1. Record decision
     workflow_add_human_decision(
@@ -227,16 +272,24 @@ def cmd_checkpoint_done(args: argparse.Namespace) -> None:
         task_id=task_id,
     )
 
-    # 2. Handle revise — transition back to developer
+    # 2. Ensure phase is marked complete for approve/skip
+    if decision in ("approve", "skip"):
+        workflow_complete_phase(task_id=task_id)
+
+    # 3. Handle revise — transition back to developer
     if decision == "revise":
         workflow_transition(to_phase="developer", task_id=task_id)
 
-    # 3. Handle restart — transition back to architect
+    # 4. Handle restart — transition back to architect
     if decision == "restart":
         workflow_transition(to_phase="architect", task_id=task_id)
 
-    # 4. Get next action
+    # 5. Get next action
     next_action = crew_get_next_phase(task_id=task_id)
+
+    # 6. Pre-transition to next phase if spawning an agent
+    if next_action.get("action") == "spawn_agent" and next_action.get("agent"):
+        workflow_transition(to_phase=next_action["agent"], task_id=task_id)
 
     _output({
         "action": "checkpoint_done",
@@ -300,8 +353,33 @@ def cmd_complete(args: argparse.Namespace) -> None:
             except (ImportError, Exception):
                 pass  # Jira integration is non-blocking
 
+    # Mark workflow as complete in state.json
+    if task_dir:
+        state = _load_state(task_dir)
+        state["status"] = "completed"
+        state["completed_at"] = datetime.now().isoformat()
+        if files_changed:
+            state["files_changed"] = files_changed
+        _save_state(task_dir, state)
+
     completion["jira_actions"] = jira_actions
     _output(completion)
+
+
+def cmd_log_interaction(args: argparse.Namespace) -> None:
+    """Log an interaction entry.
+
+    Wraps: workflow_log_interaction
+    """
+    result = workflow_log_interaction(
+        role=args.role,
+        content=args.content,
+        interaction_type=args.type,
+        agent=args.agent or "",
+        phase=args.phase or "",
+        task_id=args.task_id,
+    )
+    _output(result)
 
 
 def cmd_resume(args: argparse.Namespace) -> None:
@@ -354,6 +432,7 @@ def main():
     p_ckpt.add_argument("--task-id", required=True, help="Task identifier")
     p_ckpt.add_argument("--decision", required=True, choices=["approve", "revise", "restart", "skip"])
     p_ckpt.add_argument("--notes", help="Optional decision notes")
+    p_ckpt.add_argument("--question", help="Checkpoint question that was presented to user")
 
     # impl-action
     p_impl = subparsers.add_parser("impl-action", help="Implementation loop step")
@@ -365,6 +444,17 @@ def main():
     p_complete = subparsers.add_parser("complete", help="Format completion + Jira + beads")
     p_complete.add_argument("--task-id", required=True, help="Task identifier")
     p_complete.add_argument("--files", help="Comma-separated list of changed files")
+
+    # log-interaction
+    p_log = subparsers.add_parser("log-interaction", help="Log an interaction entry")
+    p_log.add_argument("--task-id", required=True, help="Task identifier")
+    p_log.add_argument("--role", required=True, choices=["human", "agent", "system"])
+    p_log.add_argument("--content", required=True, help="Message content")
+    p_log.add_argument("--type", default="message",
+                       choices=["message", "checkpoint_question", "checkpoint_response",
+                                "guidance", "escalation_question", "escalation_response"])
+    p_log.add_argument("--agent", help="Agent context (e.g., orchestrator, architect)")
+    p_log.add_argument("--phase", help="Current workflow phase")
 
     # resume
     p_resume = subparsers.add_parser("resume", help="Load resume context")
@@ -379,6 +469,7 @@ def main():
         "checkpoint-done": cmd_checkpoint_done,
         "impl-action": cmd_impl_action,
         "complete": cmd_complete,
+        "log-interaction": cmd_log_interaction,
         "resume": cmd_resume,
     }
 

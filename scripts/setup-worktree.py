@@ -78,13 +78,30 @@ AI_HOST_CLI = {
 
 HOST_SETTINGS = {
     "claude": [".claude/settings.local.json"],
-    "gemini": [],
+    "gemini": ["gemini_trust"],
     "copilot": [],
 }
+
+GEMINI_TRUST_SCRIPT = """
+import json, os, sys
+worktree_abs = sys.argv[1]
+trust_file = os.path.expanduser("~/.gemini/trustedFolders.json")
+os.makedirs(os.path.dirname(trust_file), exist_ok=True)
+d = {}
+if os.path.isfile(trust_file):
+    with open(trust_file) as f:
+        d = json.load(f)
+if worktree_abs not in d:
+    d[worktree_abs] = "TRUST_FOLDER"
+    with open(trust_file, "w") as f:
+        json.dump(d, f, indent=2)
+        f.write("\\n")
+"""
 
 SETTINGS_PATCH_SCRIPT = """
 import json, os, sys
 src, dst, tasks_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+perms_tpl = sys.argv[4] if len(sys.argv) > 4 else None
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 d = {}
 if os.path.isfile(src):
@@ -93,6 +110,14 @@ if os.path.isfile(src):
 dirs = d.setdefault("additionalDirectories", [])
 if tasks_dir not in dirs:
     dirs.append(tasks_dir)
+if perms_tpl and os.path.isfile(perms_tpl):
+    with open(perms_tpl) as f:
+        tpl = json.load(f)
+    perms = d.setdefault("permissions", {})
+    allow = perms.setdefault("allow", [])
+    for entry in tpl.get("permissions", {}).get("allow", []):
+        if entry not in allow:
+            allow.append(entry)
 with open(dst, "w") as f:
     json.dump(d, f, indent=2)
     f.write("\\n")
@@ -893,13 +918,33 @@ def main():
     # Copy/patch host settings
     copy_settings = wt_config.get("copy_settings", True)
     if copy_settings:
+        # Locate permissions template (check repo config/ and ~/.claude/config/)
+        perms_tpl = ""
+        for candidate in [
+            os.path.join(main_repo_abs, "config", "worktree-permissions.json"),
+            os.path.expanduser("~/.claude/config/worktree-permissions.json"),
+        ]:
+            if os.path.isfile(candidate):
+                perms_tpl = candidate
+                break
+
         for settings_file in HOST_SETTINGS.get(ai_host, []):
+            if settings_file == "gemini_trust":
+                # Special: add worktree to Gemini trustedFolders.json
+                trust_cmd = (
+                    f"python3 -c {shlex.quote(GEMINI_TRUST_SCRIPT)} "
+                    f"{shlex.quote(worktree_abs)}"
+                )
+                run_cmd_shell(trust_cmd, dry_run, warn_only=True)
+                continue
             src = os.path.join(main_repo_abs, settings_file)
             dest = os.path.join(worktree_abs, settings_file)
             patch_cmd = (
                 f"python3 -c {shlex.quote(SETTINGS_PATCH_SCRIPT)} "
                 f"{shlex.quote(src)} {shlex.quote(dest)} {shlex.quote(main_tasks_abs)}"
             )
+            if perms_tpl:
+                patch_cmd += f" {shlex.quote(perms_tpl)}"
             run_cmd_shell(patch_cmd, dry_run, warn_only=True)
         setup_summary = ".tasks/ symlinked, settings copied"
     else:

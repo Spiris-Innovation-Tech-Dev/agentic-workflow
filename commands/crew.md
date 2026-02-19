@@ -10,7 +10,10 @@ Run: `python3 scripts/crew_orchestrator.py init --args "$ARGS"`
 
 The script returns JSON with `action` and routing details. Handle by action:
 
-- **start** → Display task summary (ID, mode, optional agents), then run Context Preparation and Beads Integration (below), then enter Action Loop with `result.next`
+- **start** → Display task summary (ID, mode, optional agents), log the user's task description, then run Context Preparation and Beads Integration (below), then enter Action Loop with `result.next`:
+  ```
+  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<original task description>" --type message --phase init
+  ```
 - **resume** → Display `result.resume_state.display_summary`, enter Action Loop with `result.next`
 - **status** → List `.tasks/` contents and show active workflows
 - **config** → Call `config_get_effective()` and display configuration
@@ -40,19 +43,18 @@ Loop on the returned JSON action from the orchestrator:
 1. Read agent prompt from `next.agent_prompt_path`
 2. Compose prompt using Agent Prompt Composition (below)
 3. If `next.beads_comment`, run: `bd comments add <issue> "<comment>"`
-4. Call `workflow_transition(to_phase: next.agent)` to update state
-5. If `next.parallel_with` is set:
+4. If `next.parallel_with` is set:
    - Spawn both agents simultaneously using parallel Task calls with `run_in_background: true`
    - Wait for both with TaskOutput
    - Call `workflow_start_parallel_phase`, `workflow_complete_parallel_phase` for each, then `workflow_merge_parallel_results`
-6. Otherwise spawn single agent:
+5. Otherwise spawn single agent:
    ```
    Task(subagent_type: "general-purpose", model: "opus", max_turns: next.max_turns, prompt: "<composed prompt>")
    ```
-7. Save agent output to `.tasks/<task_id>/<agent>.md`
-8. Run: `python3 scripts/crew_orchestrator.py agent-done --task-id <id> --agent <agent> --output-file <path> [--input-tokens N --output-tokens N --model opus]`
-9. If `result.has_blocking_issues` and recommendation is REVISE → inform user, loop continues via `result.next`
-10. Continue loop with `result.next`
+6. Save agent output to `.tasks/<task_id>/<agent>.md`
+7. Run: `python3 scripts/crew_orchestrator.py agent-done --task-id <id> --agent <agent> --output-file <path> [--input-tokens N --output-tokens N --model opus]`
+8. If `result.has_blocking_issues` and recommendation is REVISE → inform user, loop continues via `result.next`
+9. Continue loop with `result.next`
 
 #### action: "checkpoint"
 
@@ -61,7 +63,8 @@ Summarize the preceding agent's key findings, then present to user:
 AskUserQuestion: "Based on [Agent]'s analysis: [summary]. How would you like to proceed?"
 Options: Approve, Revise, Restart, Skip
 ```
-After user responds, run: `python3 scripts/crew_orchestrator.py checkpoint-done --task-id <id> --decision <decision> [--notes "..."]`
+After user responds, run: `python3 scripts/crew_orchestrator.py checkpoint-done --task-id <id> --decision <decision> [--notes "..."] --question "<checkpoint summary that was presented>"`
+The `--question` flag logs both the checkpoint question and response to `interactions.jsonl`.
 Continue loop with `result.next`.
 
 #### action: "implement_step" / "verify" / "retry" / "next_step" / "escalate"
@@ -72,7 +75,14 @@ Run: `python3 scripts/crew_orchestrator.py impl-action --task-id <id> [--verifie
 - **retry**: Re-attempt with `should_try_different_approach` guidance. Use `known_solution` if available.
 - **next_step**: Call `workflow_complete_step(step_id)`, then get next action.
 - **checkpoint**: Present progress checkpoint to user.
-- **escalate**: Pause and ask user for help. Show `reason`.
+- **escalate**: Pause and ask user for help. Show `reason`. Log the escalation and response:
+  ```
+  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role agent --content "<reason>" --type escalation_question --agent implementer --phase implementer
+  ```
+  After user responds:
+  ```
+  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user response>" --type escalation_response --phase implementer
+  ```
 - **complete**: Implementation done, continue to next phase.
 
 #### action: "complete"
@@ -108,6 +118,13 @@ If an agent fails or produces invalid output:
 1. Retry once with clarified instructions
 2. If still failing, escalate to human
 3. Never silently continue past errors
+
+## Interaction Logging
+
+When the user provides ad-hoc guidance mid-workflow (outside of checkpoints), log it:
+```
+python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user input>" --type guidance --phase <current_phase>
+```
 
 ## Output to User
 

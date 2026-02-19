@@ -91,9 +91,13 @@ from agentic_workflow_server.state_tools import (
     _find_recyclable_worktree,
     _is_wsl,
     list_tasks,
+    # Interaction logging
+    workflow_log_interaction,
     # Helpers
     get_tasks_dir,
     DISCOVERY_CATEGORIES,
+    INTERACTION_ROLES,
+    INTERACTION_TYPES,
     PHASE_ORDER,
 )
 
@@ -1295,13 +1299,14 @@ class TestWorktreeSupport:
             if created_settings and os.path.exists(settings_file):
                 os.remove(settings_file)
 
-    def test_create_worktree_gemini_no_settings_copy(self, clean_tasks_dir):
+    def test_create_worktree_gemini_adds_trust(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_WT_015")
         result = workflow_create_worktree(task_id="TASK_TEST_WT_015", ai_host="gemini")
 
-        # Only the .tasks/ symlink, no settings copy
-        assert len(result["setup_commands"]) == 1
+        # .tasks/ symlink + Gemini trust command
+        assert len(result["setup_commands"]) == 2
         assert "ln -sfn" in result["setup_commands"][0]
+        assert "trustedFolders" in result["setup_commands"][1]
 
     def test_create_worktree_copilot_no_settings_copy(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_WT_016")
@@ -2126,6 +2131,135 @@ class TestFixPathsCommands:
         else:
             # Recycling fell back to fresh — fix_paths depends on WSL detection
             assert "fix_paths_commands" in result
+
+
+class TestInteractionLogging:
+    """Test workflow_log_interaction."""
+
+    def test_log_basic_interaction(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_001")
+        result = workflow_log_interaction(
+            role="human",
+            content="Fix the auth bug",
+            task_id="TASK_TEST_INT_001",
+        )
+        assert result["success"] is True
+        assert result["entry"]["role"] == "human"
+        assert result["entry"]["content"] == "Fix the auth bug"
+        assert result["entry"]["type"] == "message"
+        assert result["entry"]["agent"] == ""
+        assert result["entry"]["phase"] == ""
+
+        # Verify file exists and is valid JSONL
+        interactions_file = clean_tasks_dir / "TASK_TEST_INT_001" / "interactions.jsonl"
+        assert interactions_file.exists()
+        lines = interactions_file.read_text().strip().split("\n")
+        assert len(lines) == 1
+        entry = json.loads(lines[0])
+        assert entry["role"] == "human"
+        assert entry["content"] == "Fix the auth bug"
+
+    def test_log_with_all_fields(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_002")
+        result = workflow_log_interaction(
+            role="agent",
+            content="The architect recommends a microservice approach. Approve?",
+            interaction_type="checkpoint_question",
+            agent="orchestrator",
+            phase="architect",
+            task_id="TASK_TEST_INT_002",
+        )
+        assert result["success"] is True
+        assert result["entry"]["type"] == "checkpoint_question"
+        assert result["entry"]["agent"] == "orchestrator"
+        assert result["entry"]["phase"] == "architect"
+
+    def test_log_multiple_entries(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_003")
+        workflow_log_interaction(
+            role="human", content="Fix auth", task_id="TASK_TEST_INT_003",
+        )
+        workflow_log_interaction(
+            role="agent", content="Checkpoint: approve?",
+            interaction_type="checkpoint_question",
+            agent="orchestrator", phase="architect",
+            task_id="TASK_TEST_INT_003",
+        )
+        workflow_log_interaction(
+            role="human", content="approve",
+            interaction_type="checkpoint_response",
+            agent="orchestrator", phase="architect",
+            task_id="TASK_TEST_INT_003",
+        )
+
+        interactions_file = clean_tasks_dir / "TASK_TEST_INT_003" / "interactions.jsonl"
+        lines = interactions_file.read_text().strip().split("\n")
+        assert len(lines) == 3
+        assert json.loads(lines[0])["role"] == "human"
+        assert json.loads(lines[1])["type"] == "checkpoint_question"
+        assert json.loads(lines[2])["type"] == "checkpoint_response"
+
+    def test_log_invalid_role(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_004")
+        result = workflow_log_interaction(
+            role="invalid",
+            content="test",
+            task_id="TASK_TEST_INT_004",
+        )
+        assert result["success"] is False
+        assert "Invalid role" in result["error"]
+
+    def test_log_invalid_type(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_005")
+        result = workflow_log_interaction(
+            role="human",
+            content="test",
+            interaction_type="invalid_type",
+            task_id="TASK_TEST_INT_005",
+        )
+        assert result["success"] is False
+        assert "Invalid interaction_type" in result["error"]
+
+    def test_log_nonexistent_task(self, clean_tasks_dir):
+        result = workflow_log_interaction(
+            role="human",
+            content="test",
+            task_id="TASK_NONEXISTENT",
+        )
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+    def test_log_has_timestamp(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_006")
+        result = workflow_log_interaction(
+            role="human",
+            content="test",
+            task_id="TASK_TEST_INT_006",
+        )
+        assert "timestamp" in result["entry"]
+        # Verify it's a valid ISO timestamp
+        datetime.fromisoformat(result["entry"]["timestamp"])
+
+    def test_all_interaction_types(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_007")
+        for itype in INTERACTION_TYPES:
+            result = workflow_log_interaction(
+                role="human",
+                content=f"test {itype}",
+                interaction_type=itype,
+                task_id="TASK_TEST_INT_007",
+            )
+            assert result["success"] is True, f"Failed for type {itype}"
+
+    def test_all_roles(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_INT_008")
+        for role in INTERACTION_ROLES:
+            result = workflow_log_interaction(
+                role=role,
+                content=f"test {role}",
+                task_id="TASK_TEST_INT_008",
+            )
+            assert result["success"] is True, f"Failed for role {role}"
 
 
 if __name__ == "__main__":

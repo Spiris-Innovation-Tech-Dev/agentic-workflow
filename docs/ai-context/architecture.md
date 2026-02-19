@@ -119,16 +119,16 @@ High-level functions called by the `/crew` command and `scripts/crew_orchestrato
 - `crew_jira_transition(task_id, hook_name, issue_key)` — Resolve Jira lifecycle transition (skip/prompt/execute)
 - `crew_get_resume_state(task_id)` — Load resume context for a paused task
 
-### scripts/crew_orchestrator.py — CLI Routing (~280 lines)
+### scripts/crew_orchestrator.py — CLI Routing (~430 lines)
 
-CLI script that batches multiple MCP tool calls into single instant JSON decisions, replacing LLM interpretation of procedural routing logic. Subcommands:
+CLI script that batches multiple MCP tool calls into single instant JSON decisions, replacing LLM interpretation of procedural routing logic. The orchestrator owns all `state.json` phase transitions -- it calls `workflow_transition()` after determining the next phase, so the LLM never needs to call `workflow_transition` directly. Subcommands:
 
-- `init --args "..."` — Parse args → init task → get first phase (replaces 3 LLM turns)
+- `init --args "..."` — Parse args → init task → get first phase → transition state to first phase (replaces 3 LLM turns)
 - `next --task-id X` — Get next phase/action
-- `agent-done --task-id X --agent A` — Parse output → complete phase → record cost → get next (replaces 4 LLM turns)
-- `checkpoint-done --task-id X --decision D` — Record decision → get next
+- `agent-done --task-id X --agent A` — Parse output → complete phase → record cost → get next → transition to next phase (replaces 4 LLM turns)
+- `checkpoint-done --task-id X --decision D` — Record decision → complete phase (approve/skip) → get next → transition to next phase
 - `impl-action --task-id X` — Implementation loop step
-- `complete --task-id X` — Format completion + resolve Jira transitions
+- `complete --task-id X` — Format completion + resolve Jira transitions + mark state as completed
 - `resume --task-id X` — Load resume context + get next phase
 
 ### server.py — MCP Registration (~1500 lines)
@@ -243,9 +243,80 @@ Each platform prepends a preamble (`config/platform-preambles/`) that adapts too
 1. Agent detects terminal: tmux → windows_terminal → macos → linux_generic
 2. `workflow_create_worktree()` records metadata, returns git commands
 3. Agent executes git commands (worktree add, branch create)
-4. Agent runs setup (symlink .tasks, copy settings, fix paths, install deps)
+4. Agent runs setup (symlink .tasks, copy settings, pre-authorize permissions, fix paths, install deps)
 5. `workflow_get_launch_command()` generates platform-specific launch command
 6. Agent executes the launch command
+
+### Permission Pre-Authorization
+
+Worktree sessions need access to MCP workflow tools and common bash commands. Without pre-authorization, Claude Code prompts the user to approve each tool call individually, which is disruptive in autonomous crew workflows. The permission system solves this at two levels:
+
+#### At Install Time (`install.sh`)
+
+The installer performs global setup that applies to all future worktrees:
+
+- **Claude**: Adds the worktree base directory (`../{repo}-worktrees`) to `~/.claude/settings.local.json` `additionalDirectories`, giving Claude Code file access to all worktree directories
+- **Gemini**: Adds the worktree base directory to `~/.gemini/trustedFolders.json` (only if `~/.gemini/` exists)
+- **Copilot**: No equivalent permission model; no action taken
+- **Template**: Copies `config/worktree-permissions.json` to `~/.claude/config/` for use by per-worktree setup
+
+#### Per-Worktree Creation (setup-worktree.py / state_tools.py)
+
+When a worktree is created (either via `setup-worktree.py` or `workflow_create_worktree()` MCP tool), the settings copy step does:
+
+1. Locates the permissions template — checks `config/worktree-permissions.json` in the repo first, then falls back to `~/.claude/config/worktree-permissions.json`
+2. Copies the main repo's `.claude/settings.local.json` into the worktree
+3. Patches the copy: injects the main repo's `.tasks/` path into `additionalDirectories`
+4. If a permissions template was found, merges its `permissions.allow` entries into the worktree's settings (deduplicating)
+5. For Gemini: adds the worktree's absolute path to `~/.gemini/trustedFolders.json`
+
+This is controlled by the `copy_settings` flag in worktree config. When `copy_settings: false`, steps 1-5 are skipped entirely — only the `.tasks/` symlink is created.
+
+#### The Permissions Template (`config/worktree-permissions.json`)
+
+A curated baseline of pre-authorized permissions:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__agentic-workflow__workflow_initialize",
+      "mcp__agentic-workflow__workflow_detect_mode",
+      "mcp__agentic-workflow__workflow_transition",
+      "mcp__agentic-workflow__workflow_complete_phase",
+      ...21 MCP workflow tools total...
+      "Bash(python3:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(bd sync:*)",
+      "Bash(bd show:*)",
+      ...11 bash command patterns total...
+    ]
+  }
+}
+```
+
+The template includes only tools essential for crew workflow operation. It does not pre-authorize destructive operations like `git push`, `git commit`, or file writes — those still require explicit user approval.
+
+#### Per-Platform Support
+
+| Capability | Claude | Gemini | Copilot |
+|---|---|---|---|
+| **File access** (additionalDirectories) | Global (install) + per-worktree | N/A | N/A |
+| **MCP tool permissions** (permissions.allow) | Per-worktree via template merge | No equivalent system | No equivalent system |
+| **Folder trust** (trustedFolders.json) | N/A | Global (install) + per-worktree | N/A |
+| **Bash command patterns** | Per-worktree via template merge | No equivalent system | No equivalent system |
+| **.tasks/ symlink** | Yes | Yes | Yes |
+
+#### How to Customize or Opt Out
+
+- **Remove specific permissions**: Edit `config/worktree-permissions.json` to remove entries you do not want pre-authorized. The template is the single source — changes apply to all future worktrees.
+- **Skip all settings copying**: Set `copy_settings: false` in `workflow-config.yaml` under `worktree:`. This disables the entire settings copy + permission merge pipeline. Only the `.tasks/` symlink is created.
+- **Revoke Claude file access**: Manually edit `~/.claude/settings.local.json` to remove the worktree base directory from `additionalDirectories`.
+- **Revoke Gemini trust**: Remove entries from `~/.gemini/trustedFolders.json`.
+- **Per-worktree override**: After a worktree is created, edit its `.claude/settings.local.json` directly to add or remove permissions for that specific session.
 
 ### Color Schemes
 
