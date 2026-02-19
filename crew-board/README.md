@@ -111,16 +111,20 @@ When in document list (`d`):
 | `Enter` | Open full document with syntax highlighting |
 | `Esc` | Back to overview |
 
-### Actions
+### Actions (F-keys)
 | Key | Action |
 |-----|--------|
-| `n` | Create new worktree from selected repo |
+| `F1` | Show help overlay with all keybindings |
 | `F2` | Launch terminal with AI host for selected task |
 | `F3` | Search across all tasks and documents |
+| `F4` | Create new worktree from selected repo |
 | `F5` | Force refresh |
-| `q`/`Esc` | Quit |
+| `F10` | Quit |
+| `q` | Quit |
 
-### `n` — New Worktree
+**Note:** `Esc` never quits — it only closes popups, backs out of detail views, or switches pane focus.
+
+### `F4` — New Worktree
 Opens a multi-step wizard (only on repo rows):
 1. **Task description** — free text input
 2. **AI host** — Claude Code, GitHub Copilot, or Gemini CLI

@@ -71,13 +71,17 @@ Overview ──d──> DocList ──Enter──> DocReader
 
 ### Event Loop
 Keys are routed in priority order:
-1. Create worktree popup open → popup keys (text input, selection, toggles)
-2. Launch popup open → popup keys only
-3. Right pane focused + non-Overview mode → doc/history navigation
-4. Default → tree nav, view switching, shortcuts
+1. Help overlay open → any key closes it
+2. Search popup open → search-specific keys
+3. Create worktree popup open → popup keys (text input, selection, toggles)
+4. Launch popup open → popup keys only
+5. Right pane focused + non-Overview mode → doc/history navigation
+6. Default → tree nav, view switching, shortcuts
 
-### Worktree Creation (`n` key)
-Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`. Press `n` on a repo row to:
+**Esc behavior:** Esc never quits the application. It only closes popups, backs out of detail views, or switches focus from right pane to left pane. Use `q` or `F10` to quit.
+
+### Worktree Creation (`F4` key)
+Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`. Press `F4` on a repo row to:
 1. Enter task description (text input via `tui-input`)
 2. Select AI host (Claude/Copilot/Gemini)
 3. Toggle settings (pull latest, launch terminal)
@@ -98,7 +102,14 @@ Central style helpers in `styles.rs` ensure visual consistency:
 - `popup_selected_style()` — delegates to `selected_style()` (single source of truth)
 - `hint_style()` — dim gray for keybinding hints
 
-Pane focus is indicated by bold border + `◄` marker in the title. Detail pane titles show breadcrumb trails (e.g. `TASK_003 > Documents > Architect Analysis`). Status bar hints are contextual — they change based on active view, focus pane, detail mode, and open popups.
+Pane focus is indicated by bold border + `◄` marker in the title. Detail pane titles show breadcrumb trails (e.g. `TASK_003 > Documents > Architect Analysis`).
+
+### Status Bar (Norton Commander-style)
+Two-line status bar:
+- **Line 1**: View tabs + contextual navigation hints + aggregate stats
+- **Line 2**: NC-style F-key bar: `F1Help  F2Launch  F3Search  F4New  F5Rfrsh  ...  F10Quit`
+
+When a popup is open, line 2 shows popup-specific hints instead of the F-key bar.
 
 ### Color Schemes
 8 schemes from Python `CREW_COLOR_SCHEMES` (state_tools.py), indexed by `color_scheme_index` from worktree state. Used for tree row accents, detail pane colors, and terminal tab colors.
@@ -151,6 +162,6 @@ Follow the pattern established by `launch_popup.rs` and `create_popup.rs`:
 - **Login shells**: `bash -lic` sources profile which may reset cwd. Always prefix commands with `cd <dir> &&`.
 - **Tree rebuild**: Forgetting `rebuild_tree()` after changing `expanded_repos` causes stale cursor state.
 - **Detail mode reset**: Must reset `detail_mode` to `Overview` when tree cursor changes.
-- **Popup priority**: Create popup must be checked before launch popup in the event loop. Both must be checked before default key handling.
+- **Popup priority**: Help overlay > search popup > create popup > launch popup > detail nav > default. All must be checked before default key handling.
 - **Background threads**: `create_worktree()` runs on `std::thread::spawn`. Poll `JoinHandle::is_finished()` each tick (250ms). No async runtime needed.
-- **`n` key scope**: Only works on Repo rows — `open_create_popup()` returns early on Task rows.
+- **`F4` key scope**: Only works on Repo rows — `open_create_popup()` returns early on Task rows.

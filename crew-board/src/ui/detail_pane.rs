@@ -501,29 +501,77 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" — History", styles::dim_style()),
+        Span::styled(" — State Inspector", styles::dim_style()),
     ]));
+    if !task.description.is_empty() {
+        lines.push(Line::from(Span::styled(
+            task.description.as_str(),
+            Style::default().fg(Color::White),
+        )));
+    }
     lines.push(Line::from(""));
 
-    // Iteration info
+    // ── Workflow Mode ──
+    if let Some(ref mode) = task.workflow_mode {
+        lines.push(Line::from(Span::styled(
+            "── Workflow Mode ──",
+            styles::header_style(),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("  Effective:  ", styles::dim_style()),
+            Span::styled(
+                mode.effective.as_str(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+        if !mode.requested.is_empty() && mode.requested != mode.effective {
+            lines.push(Line::from(vec![
+                Span::styled("  Requested:  ", styles::dim_style()),
+                Span::raw(mode.requested.as_str()),
+            ]));
+        }
+        if !mode.detection_reason.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Reason:     ", styles::dim_style()),
+                Span::raw(mode.detection_reason.as_str()),
+            ]));
+        }
+        if mode.confidence > 0.0 {
+            lines.push(Line::from(vec![
+                Span::styled("  Confidence: ", styles::dim_style()),
+                Span::raw(format!("{:.0}%", mode.confidence * 100.0)),
+            ]));
+        }
+        if !mode.estimated_cost.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Est. cost:  ", styles::dim_style()),
+                Span::styled(
+                    mode.estimated_cost.as_str(),
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+        }
+        if !mode.phases.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Phases:     ", styles::dim_style()),
+                Span::raw(mode.phases.join(", ")),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Phase Timeline ──
     lines.push(Line::from(Span::styled(
-        "── Iterations ──",
+        "── Phase Timeline ──",
         styles::header_style(),
     )));
     lines.push(Line::from(vec![
-        Span::styled("  Current iteration: ", styles::dim_style()),
+        Span::styled("  Iteration: ", styles::dim_style()),
         Span::styled(
             format!("{}", task.iteration),
             Style::default().fg(Color::Yellow),
         ),
     ]));
-    lines.push(Line::from(""));
-
-    // Phase timeline
-    lines.push(Line::from(Span::styled(
-        "── Phase Timeline ──",
-        styles::header_style(),
-    )));
     let current_phase = task.phase.as_deref().unwrap_or("");
     for phase in PHASE_ORDER {
         let is_completed = task.phases_completed.contains(&phase.to_string());
@@ -544,7 +592,108 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
     }
     lines.push(Line::from(""));
 
-    // Human decisions
+    // ── Implementation Progress ──
+    if task.implementation_progress.total_steps > 0 {
+        let prog = &task.implementation_progress;
+        let pct = (prog.current_step as f64 / prog.total_steps as f64 * 100.0) as u32;
+        let filled = (pct as usize) / 5;
+        let empty = 20usize.saturating_sub(filled);
+
+        lines.push(Line::from(Span::styled(
+            "── Implementation Progress ──",
+            styles::header_style(),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {}{}", "█".repeat(filled), "░".repeat(empty)),
+                Style::default().fg(Color::Green),
+            ),
+            Span::raw(format!(
+                " {}% ({}/{})",
+                pct, prog.current_step, prog.total_steps
+            )),
+        ]));
+        if !prog.steps_completed.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Completed:  ", styles::dim_style()),
+                Span::raw(prog.steps_completed.join(", ")),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Worktree ──
+    if let Some(ref wt) = task.worktree {
+        let accent = styles::get_scheme(wt.color_scheme_index).tab;
+
+        lines.push(Line::from(Span::styled(
+            "── Worktree ──",
+            styles::header_style(),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("  Status:   ", styles::dim_style()),
+            Span::styled(
+                wt.status.as_str(),
+                if wt.status == "active" {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Branch:   ", styles::dim_style()),
+            Span::raw(wt.branch.as_str()),
+        ]));
+        if !wt.base_branch.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Base:     ", styles::dim_style()),
+                Span::raw(wt.base_branch.as_str()),
+            ]));
+        }
+        if !wt.path.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Path:     ", styles::dim_style()),
+                Span::raw(wt.path.as_str()),
+            ]));
+        }
+        if let Some(ref launch) = wt.launch {
+            let scheme_name = launch.color_scheme.as_str();
+            lines.push(Line::from(vec![
+                Span::styled("  Color:    ", styles::dim_style()),
+                Span::styled(format!("■ {}", scheme_name), Style::default().fg(accent)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  AI Host:  ", styles::dim_style()),
+                Span::raw(launch.ai_host.as_str()),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  Terminal: ", styles::dim_style()),
+                Span::raw(launch.terminal_env.as_str()),
+            ]));
+            if !launch.worktree_abs_path.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("  Abs path: ", styles::dim_style()),
+                    Span::raw(launch.worktree_abs_path.as_str()),
+                ]));
+            }
+            if !launch.launched_at.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("  Launched: ", styles::dim_style()),
+                    Span::raw(format_timestamp(&launch.launched_at)),
+                ]));
+            }
+        }
+        if !wt.created_at.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  Created:  ", styles::dim_style()),
+                Span::raw(format_timestamp(&wt.created_at)),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Human Decisions ──
     let decisions = task::parse_decisions(&task.human_decisions);
     if !decisions.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -569,7 +718,6 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
                 ),
             ]));
             if !decision.notes.is_empty() {
-                // Wrap long notes
                 let note_lines = wrap_text(&decision.notes, 60);
                 for nl in note_lines {
                     lines.push(Line::from(Span::styled(
@@ -582,7 +730,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         }
     }
 
-    // Review issues
+    // ── Review Issues ──
     if !task.review_issues.is_empty() {
         lines.push(Line::from(Span::styled(
             "── Review Issues ──",
@@ -615,7 +763,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         lines.push(Line::from(""));
     }
 
-    // Concerns
+    // ── Concerns ──
     if !task.concerns.is_empty() {
         lines.push(Line::from(Span::styled(
             "── Concerns ──",
@@ -644,7 +792,55 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         lines.push(Line::from(""));
     }
 
-    // Timestamps
+    // ── Docs Needed ──
+    if !task.docs_needed.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "── Documentation Gaps ──",
+            styles::header_style(),
+        )));
+        for doc in &task.docs_needed {
+            lines.push(Line::from(vec![
+                Span::styled("  • ", Style::default().fg(Color::Yellow)),
+                Span::raw(doc.as_str()),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Cost Summary ──
+    if let Some(ref cost) = task.cost_summary {
+        lines.push(Line::from(Span::styled(
+            "── Cost Summary ──",
+            styles::header_style(),
+        )));
+        if let Some(obj) = cost.as_object() {
+            for (key, val) in obj {
+                let display = match val {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => {
+                        if let Some(f) = n.as_f64() {
+                            format!("${:.4}", f)
+                        } else {
+                            n.to_string()
+                        }
+                    }
+                    other => other.to_string(),
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {}: ", key), styles::dim_style()),
+                    Span::raw(display),
+                ]));
+            }
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("  ", styles::dim_style()),
+                Span::raw(cost.to_string()),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Timeline ──
     lines.push(Line::from(Span::styled(
         "── Timeline ──",
         styles::header_style(),
