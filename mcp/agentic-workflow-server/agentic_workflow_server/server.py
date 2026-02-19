@@ -106,6 +106,7 @@ from .orchestration_tools import (
     crew_get_implementation_action,
     crew_format_completion,
     crew_get_resume_state,
+    crew_jira_transition,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1463,6 +1464,29 @@ TOOLS = [
             "required": ["task_id"]
         }
     ),
+    Tool(
+        name="crew_jira_transition",
+        description="Resolve a Jira lifecycle transition for a hook (on_create, on_complete, on_cleanup). Returns skip/prompt/execute action based on config.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task identifier for config resolution"
+                },
+                "hook_name": {
+                    "type": "string",
+                    "description": "Lifecycle hook name",
+                    "enum": ["on_create", "on_complete", "on_cleanup"]
+                },
+                "issue_key": {
+                    "type": "string",
+                    "description": "Jira issue key (e.g., 'PROJ-42')"
+                }
+            },
+            "required": ["hook_name", "issue_key"]
+        }
+    ),
 ]
 
 
@@ -1539,6 +1563,7 @@ TOOL_DISPATCH_TABLE = {
     "crew_get_implementation_action": crew_get_implementation_action,
     "crew_format_completion": crew_format_completion,
     "crew_get_resume_state": crew_get_resume_state,
+    "crew_jira_transition": crew_jira_transition,
 }
 
 

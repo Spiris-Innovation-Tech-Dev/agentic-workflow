@@ -602,3 +602,46 @@ class TestCrewGetResumeState:
     def test_nonexistent_task(self):
         result = crew_get_resume_state(task_id="TASK_NONEXISTENT")
         assert "error" in result
+
+
+# ============================================================================
+# crew_jira_transition tests
+# ============================================================================
+
+from agentic_workflow_server.orchestration_tools import crew_jira_transition
+
+
+class TestCrewJiraTransition:
+    def test_no_issue_key(self):
+        result = crew_jira_transition(hook_name="on_complete", issue_key=None)
+        assert result["action"] == "skip"
+        assert "No Jira issue key" in result["reason"]
+
+    def test_empty_issue_key(self):
+        result = crew_jira_transition(hook_name="on_complete", issue_key="")
+        assert result["action"] == "skip"
+
+    def test_no_target_status_configured(self):
+        """Default config has empty 'to' for all hooks."""
+        result = crew_jira_transition(hook_name="on_complete", issue_key="PROJ-42")
+        assert result["action"] == "skip"
+        assert "No target status" in result["reason"]
+
+    def test_on_create_default_config(self):
+        """on_create has mode=auto but empty to, so should skip."""
+        result = crew_jira_transition(hook_name="on_create", issue_key="PROJ-42")
+        assert result["action"] == "skip"
+
+    def test_on_cleanup_default_config(self):
+        """on_cleanup has mode=prompt but empty to, so should skip."""
+        result = crew_jira_transition(hook_name="on_cleanup", issue_key="PROJ-42")
+        assert result["action"] == "skip"
+
+    def test_unknown_hook_name(self):
+        """Unknown hook name returns skip (no config found)."""
+        result = crew_jira_transition(hook_name="on_unknown", issue_key="PROJ-42")
+        assert result["action"] == "skip"
+
+    def test_skip_preserves_hook_name(self):
+        result = crew_jira_transition(hook_name="on_complete", issue_key="PROJ-42")
+        assert result.get("hook_name") == "on_complete"

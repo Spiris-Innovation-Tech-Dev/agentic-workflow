@@ -106,9 +106,9 @@ Key config sections:
 
 **Multi-platform config paths** — The server searches for config files in Claude, Copilot, and Gemini config directories (in that preference order).
 
-### orchestration_tools.py — Crew Helpers (~2600 lines)
+### orchestration_tools.py — Crew Helpers (~1400 lines)
 
-High-level functions called by the `/crew` command:
+High-level functions called by the `/crew` command and `scripts/crew_orchestrator.py`:
 
 - `crew_parse_args(raw_args)` — Parse command arguments (action, task description, options)
 - `crew_init_task(description, options)` — Full task initialization (config, state, mode, KB inventory)
@@ -116,6 +116,20 @@ High-level functions called by the `/crew` command:
 - `crew_parse_agent_output(agent, output_text)` — Extract issues and recommendations
 - `crew_get_implementation_action(task_id, verification_passed?, error_output?)` — Implementation loop logic
 - `crew_format_completion(task_id, files_changed)` — Final summary, commit message, cleanup
+- `crew_jira_transition(task_id, hook_name, issue_key)` — Resolve Jira lifecycle transition (skip/prompt/execute)
+- `crew_get_resume_state(task_id)` — Load resume context for a paused task
+
+### scripts/crew_orchestrator.py — CLI Routing (~280 lines)
+
+CLI script that batches multiple MCP tool calls into single instant JSON decisions, replacing LLM interpretation of procedural routing logic. Subcommands:
+
+- `init --args "..."` — Parse args → init task → get first phase (replaces 3 LLM turns)
+- `next --task-id X` — Get next phase/action
+- `agent-done --task-id X --agent A` — Parse output → complete phase → record cost → get next (replaces 4 LLM turns)
+- `checkpoint-done --task-id X --decision D` — Record decision → get next
+- `impl-action --task-id X` — Implementation loop step
+- `complete --task-id X` — Format completion + resolve Jira transitions
+- `resume --task-id X` — Load resume context + get next phase
 
 ### server.py — MCP Registration (~1500 lines)
 
@@ -258,7 +272,8 @@ tests/
 ├── test_state_tools_extended.py # Additional state tests (assertions, errors, etc.)
 ├── test_config_tools.py         # Config loading, cascade, platform paths
 ├── test_config_tools_extended.py # Additional config edge cases
-├── test_orchestration_tools.py  # Crew helpers (arg parsing, phase routing)
+├── test_orchestration_tools.py  # Crew helpers (arg parsing, phase routing, Jira transition)
+├── test_crew_orchestrator.py    # CLI orchestrator script (subprocess tests)
 ├── test_resources.py            # MCP resource tests
 └── conftest.py                  # Shared fixtures
 ```
@@ -277,7 +292,7 @@ All tests use this to avoid polluting real state.
 
 ```bash
 cd mcp/agentic-workflow-server
-python3 -m pytest tests/ -v                    # All (432+ tests)
+python3 -m pytest tests/ -v                    # All (463+ tests)
 python3 -m pytest tests/test_state_tools.py -v # One file
 python3 -m pytest tests/test_state_tools.py::TestLaunchMode -v  # One class
 python3 -m pytest tests/ -k "test_tmux" -v     # By name pattern

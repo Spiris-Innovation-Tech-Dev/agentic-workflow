@@ -273,6 +273,10 @@ def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
     if current is None:
         if to_phase == "architect":
             return True, "Starting workflow with architect"
+        # Allow starting with any phase if mode doesn't include architect
+        mode_phases = state.get("workflow_mode", {}).get("phases", [])
+        if mode_phases and to_phase == mode_phases[0]:
+            return True, f"Starting workflow with {to_phase} (mode skips architect)"
         return False, "Workflow must start with architect phase"
 
     if to_phase == current:
@@ -288,6 +292,15 @@ def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
 
     if to_idx == current_idx + 1:
         return True, f"Valid forward transition from {current} to {to_phase}"
+
+    # Allow forward skips when the mode doesn't include intermediate phases
+    if to_idx > current_idx:
+        mode_phases = state.get("workflow_mode", {}).get("phases", [])
+        if mode_phases:
+            # Check that all skipped phases are not in the mode
+            skipped = [PHASE_ORDER[i] for i in range(current_idx + 1, to_idx)]
+            if all(p not in mode_phases for p in skipped):
+                return True, f"Valid forward skip from {current} to {to_phase} (skipped phases not in mode)"
 
     if to_phase == "developer" and current in ("reviewer", "skeptic"):
         return True, f"Valid loop-back from {current} to developer"

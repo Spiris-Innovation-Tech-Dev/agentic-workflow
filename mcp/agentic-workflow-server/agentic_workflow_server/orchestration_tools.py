@@ -923,12 +923,13 @@ def crew_parse_agent_output(
             for issue in issues:
                 if task_id and isinstance(issue, dict):
                     workflow_add_review_issue(
-                        issue=issue.get("description", str(issue)),
+                        issue_type=issue.get("type", "review"),
+                        description=issue.get("description", str(issue)),
                         severity=issue.get("severity", "medium"),
                         task_id=task_id
                     )
                 elif task_id and isinstance(issue, str):
-                    workflow_add_review_issue(issue=issue, task_id=task_id)
+                    workflow_add_review_issue(issue_type="review", description=issue, task_id=task_id)
             if issues:
                 has_blocking_issues = True
         except json.JSONDecodeError:
@@ -951,15 +952,16 @@ def crew_parse_agent_output(
             for concern in concerns:
                 if task_id and isinstance(concern, dict):
                     workflow_add_concern(
-                        concern=concern.get("description", str(concern)),
+                        source=agent,
                         severity=concern.get("severity", "medium"),
-                        raised_by=agent,
+                        description=concern.get("description", str(concern)),
                         task_id=task_id
                     )
                 elif task_id and isinstance(concern, str):
                     workflow_add_concern(
-                        concern=concern,
-                        raised_by=agent,
+                        source=agent,
+                        severity="medium",
+                        description=concern,
                         task_id=task_id
                     )
         except json.JSONDecodeError:
@@ -1298,4 +1300,80 @@ def crew_get_resume_state(
         "context_files": context_files,
         "display_summary": display_summary,
         "has_worktree": state.get("worktree", {}).get("status") == "active" if state.get("worktree") else False
+    }
+
+
+# ============================================================================
+# Tool 10: crew_jira_transition
+# ============================================================================
+
+def crew_jira_transition(
+    task_id: Optional[str] = None,
+    hook_name: str = "on_complete",
+    issue_key: Optional[str] = None,
+) -> dict[str, Any]:
+    """Resolve a Jira transition for a lifecycle hook.
+
+    Encapsulates the 6-step Jira transition procedure from crew.md into a
+    single deterministic call. Returns a structured action for the LLM to
+    execute (or skip).
+
+    Args:
+        task_id: Task identifier for config resolution
+        hook_name: Lifecycle hook name (on_create, on_complete, on_cleanup)
+        issue_key: Jira issue key (e.g., "PROJ-42")
+
+    Returns:
+        action (skip/prompt/execute), reason, and transition details
+    """
+    if not issue_key:
+        return {"action": "skip", "reason": "No Jira issue key provided"}
+
+    # Get effective config
+    effective = config_get_effective(task_id=task_id)
+    config = effective["config"]
+
+    # Navigate to transition config
+    jira_config = config.get("worktree", {}).get("jira", {})
+    transitions = jira_config.get("transitions", {})
+    hook_config = transitions.get(hook_name, {})
+
+    target_status = hook_config.get("to", "")
+    mode = hook_config.get("mode", "never")
+    only_from = hook_config.get("only_from", [])
+
+    # Check if transition should be skipped
+    if not target_status:
+        return {
+            "action": "skip",
+            "reason": f"No target status configured for hook '{hook_name}'",
+            "hook_name": hook_name,
+        }
+
+    if mode == "never":
+        return {
+            "action": "skip",
+            "reason": f"Mode is 'never' for hook '{hook_name}'",
+            "hook_name": hook_name,
+        }
+
+    # Build the transition details
+    transition_details = {
+        "issue_key": issue_key,
+        "target_status": target_status,
+        "hook_name": hook_name,
+        "only_from": only_from,
+    }
+
+    if mode == "prompt":
+        return {
+            "action": "prompt",
+            "question": f"Transition {issue_key} to '{target_status}'?",
+            **transition_details,
+        }
+
+    # mode == "auto"
+    return {
+        "action": "execute",
+        **transition_details,
     }

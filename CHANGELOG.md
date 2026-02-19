@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-19
+
+### Added
+- **Crew orchestrator CLI** — `scripts/crew_orchestrator.py` batches multiple MCP tool calls into single instant JSON decisions, replacing LLM interpretation of procedural routing logic. Subcommands: `init`, `next`, `agent-done`, `checkpoint-done`, `impl-action`, `complete`, `resume`
+- **`crew_jira_transition` MCP tool** — encapsulates the 6-step Jira transition procedure into a single call returning skip/prompt/execute action based on config
+- **Mode-aware phase transitions** — `_can_transition()` now allows forward skips when intermediate phases are not in the current workflow mode (e.g., developer → implementer in minimal mode)
+- `crew_get_resume_state` documented in architecture.md
+- 24 new tests for orchestrator CLI (`test_crew_orchestrator.py`), 7 new tests for Jira transition
+
+### Changed
+- **`commands/crew.md` rewritten** — 225 → 123 lines (-45%). Procedural routing logic replaced with orchestrator script calls. Kept: prompt composition, checkpoint presentation, error handling, agent spawning
+- Architecture docs updated with new orchestrator script section and test organization
+
+### Fixed
+- `crew_parse_agent_output` called `workflow_add_review_issue` with wrong parameter names (`issue=` instead of `issue_type=`, `description=`)
+- `crew_parse_agent_output` called `workflow_add_concern` with wrong parameter names (`concern=`, `raised_by=` instead of `source=`, `description=`)
+- Phase transitions rejected valid forward skips in turbo/fast/minimal modes
+
 ## [0.4.1] - 2026-02-16
 
 ### Added
