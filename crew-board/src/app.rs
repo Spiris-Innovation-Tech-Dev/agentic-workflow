@@ -127,6 +127,7 @@ pub struct App {
 
     // UI state
     pub should_quit: bool,
+    pub show_help: bool,
     pub last_refresh: std::time::Instant,
     pub detail_scroll: u16,
 
@@ -163,6 +164,7 @@ impl App {
             active_view: ActiveView::Tasks,
             focus_pane: FocusPane::Left,
             should_quit: false,
+            show_help: false,
             last_refresh: std::time::Instant::now(),
             detail_scroll: 0,
             detail_mode: DetailMode::Overview,

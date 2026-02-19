@@ -3,6 +3,7 @@ pub mod config_view;
 pub mod cost_view;
 pub mod create_popup;
 pub mod detail_pane;
+pub mod help_popup;
 pub mod launch_popup;
 pub mod search_popup;
 pub mod status_bar;
@@ -44,6 +45,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     if app.search_popup.is_some() {
         search_popup::draw(frame, app);
+    }
+    if app.show_help {
+        help_popup::draw(frame, app);
     }
 }
 

@@ -107,15 +107,19 @@ fn run_app(
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-                // Priority 0: Search popup
-                if app.search_popup.is_some() {
+                // Priority 0: Help overlay (any key closes)
+                if app.show_help {
+                    app.show_help = false;
+                }
+                // Priority 1: Search popup
+                else if app.search_popup.is_some() {
                     app.search_handle_key(key);
                 }
-                // Priority 1: Create worktree popup
+                // Priority 2: Create worktree popup
                 else if app.create_popup.is_some() {
                     app.create_popup_handle_key(key);
                 }
-                // Priority 2: Launch popup
+                // Priority 3: Launch popup
                 else if app.launch_popup.is_some() {
                     match key.code {
                         KeyCode::Esc => app.close_launch_popup(),
@@ -125,7 +129,7 @@ fn run_app(
                         _ => {}
                     }
                 }
-                // Priority 3: Right pane doc/history navigation
+                // Priority 4: Right pane doc/history navigation
                 else if app.focus_pane == FocusPane::Right
                     && app.detail_mode != DetailMode::Overview
                 {
@@ -149,25 +153,37 @@ fn run_app(
                         KeyCode::PageDown => app.scroll_detail_down(),
                         KeyCode::PageUp => app.scroll_detail_up(),
                         KeyCode::Tab => app.toggle_focus(),
-                        KeyCode::Char('q') => app.should_quit = true,
+                        KeyCode::Char('q') | KeyCode::F(10) => app.should_quit = true,
                         _ => {}
                     }
                 }
-                // Priority 4: Default key handling
+                // Priority 5: Default key handling
                 else {
                     match (key.modifiers, key.code) {
-                        // Quit
-                        (_, KeyCode::Char('q')) | (_, KeyCode::Esc) => app.should_quit = true,
+                        // Quit (q and F10 only — Esc never quits)
+                        (_, KeyCode::Char('q')) | (_, KeyCode::F(10)) => {
+                            app.should_quit = true
+                        }
                         (KeyModifiers::CONTROL, KeyCode::Char('c')) => app.should_quit = true,
+
+                        // Esc: back out progressively, never quit
+                        (_, KeyCode::Esc) => {
+                            if app.focus_pane == FocusPane::Right {
+                                app.focus_pane = FocusPane::Left;
+                            }
+                        }
+
+                        // Help
+                        (_, KeyCode::F(1)) => app.show_help = true,
 
                         // Launch terminal
                         (_, KeyCode::F(2)) => app.open_launch_popup(),
 
-                        // New worktree
-                        (_, KeyCode::Char('n')) => app.open_create_popup(),
-
                         // Search
                         (_, KeyCode::F(3)) => app.open_search(),
+
+                        // New worktree
+                        (_, KeyCode::F(4)) => app.open_create_popup(),
 
                         // Refresh
                         (_, KeyCode::F(5)) => app.refresh(),
