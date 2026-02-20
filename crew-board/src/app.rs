@@ -1,3 +1,4 @@
+use crate::cleanup;
 use crate::data::task::{self, TaskArtifact};
 use crate::data::RepoData;
 use crate::launcher::{self, AiHost, TerminalEnv};
@@ -93,6 +94,39 @@ pub struct CreateWorktreePopup {
     pub result: Option<Result<worktree::WorktreeResult, String>>,
 }
 
+/// Steps in the cleanup worktree popup flow.
+#[derive(PartialEq)]
+pub enum CleanupStep {
+    /// Select worktrees to clean up (multi-select with checkboxes)
+    SelectWorktrees,
+    /// Toggle cleanup settings (remove branch, keep on disk)
+    Settings,
+    /// Dry-run preview showing all actions + warnings
+    Preview,
+    /// Executing cleanup (background thread)
+    Executing,
+    /// Done: show results
+    Done,
+}
+
+/// State for the F6 cleanup worktree popup.
+pub struct CleanupPopup {
+    pub step: CleanupStep,
+    pub repo_path: PathBuf,
+    pub repo_name: String,
+    pub candidates: Vec<cleanup::WorktreeCandidate>,
+    pub selected: HashSet<usize>,
+    pub cursor: usize,
+    pub remove_branch: bool,
+    pub keep_on_disk: bool,
+    pub settings_cursor: usize,
+    pub preview: Vec<cleanup::CleanupAction>,
+    pub handle: Option<std::thread::JoinHandle<Vec<cleanup::CleanupResult>>>,
+    pub started_at: Option<std::time::Instant>,
+    pub results: Option<Vec<cleanup::CleanupResult>>,
+    pub scroll: u16,
+}
+
 /// A single search hit linking back to a specific task.
 pub struct SearchResult {
     pub repo_index: usize,
@@ -144,6 +178,9 @@ pub struct App {
 
     // Search popup
     pub search_popup: Option<SearchPopup>,
+
+    // Cleanup worktree popup
+    pub cleanup_popup: Option<CleanupPopup>,
 }
 
 impl App {
@@ -173,6 +210,7 @@ impl App {
             launch_popup: None,
             create_popup: None,
             search_popup: None,
+            cleanup_popup: None,
         };
         app.rebuild_tree();
         app.ensure_artifacts();
@@ -996,6 +1034,274 @@ impl App {
             }
         }
         None
+    }
+
+    // ── Cleanup Worktree Popup ─────────────────────────────────────────
+
+    /// Open the cleanup popup (F6). Works on repo rows and task rows (resolves to parent repo).
+    pub fn open_cleanup_popup(&mut self) {
+        let ri = match self.current_tree_row() {
+            Some(TreeRow::Repo(ri)) => *ri,
+            Some(TreeRow::Task(ri, _)) => *ri,
+            None => return,
+        };
+        let repo = &self.repos[ri];
+        let (repo_path, repo_name) = (repo.path.clone(), repo.name.clone());
+
+        let candidates = cleanup::list_cleanup_candidates(&repo_path);
+
+        // Pre-select completed tasks by default
+        let mut selected = HashSet::new();
+        for (i, c) in candidates.iter().enumerate() {
+            if c.is_complete {
+                selected.insert(i);
+            }
+        }
+
+        self.cleanup_popup = Some(CleanupPopup {
+            step: CleanupStep::SelectWorktrees,
+            repo_path,
+            repo_name,
+            candidates,
+            selected,
+            cursor: 0,
+            remove_branch: false,
+            keep_on_disk: false,
+            settings_cursor: 0,
+            preview: Vec::new(),
+            handle: None,
+            started_at: None,
+            results: None,
+            scroll: 0,
+        });
+    }
+
+    /// Handle a key event for the cleanup popup. Returns true if consumed.
+    pub fn cleanup_popup_handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
+        use crossterm::event::KeyCode;
+
+        if self.cleanup_popup.is_none() {
+            return false;
+        }
+
+        // Get the current step to route
+        let step_is = |s: &CleanupStep| -> bool {
+            self.cleanup_popup.as_ref().is_some_and(|p| p.step == *s)
+        };
+
+        if step_is(&CleanupStep::SelectWorktrees) {
+            match key.code {
+                KeyCode::Esc => {
+                    self.cleanup_popup = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if p.cursor > 0 {
+                            p.cursor -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if p.cursor + 1 < p.candidates.len() {
+                            p.cursor += 1;
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        let idx = p.cursor;
+                        if p.selected.contains(&idx) {
+                            p.selected.remove(&idx);
+                        } else {
+                            p.selected.insert(idx);
+                        }
+                    }
+                }
+                KeyCode::Char('a') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if p.selected.len() == p.candidates.len() {
+                            p.selected.clear();
+                        } else {
+                            p.selected = (0..p.candidates.len()).collect();
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if !p.selected.is_empty() {
+                            p.step = CleanupStep::Settings;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if step_is(&CleanupStep::Settings) {
+            match key.code {
+                KeyCode::Esc => {
+                    self.cleanup_popup = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if p.settings_cursor > 0 {
+                            p.settings_cursor -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        if p.settings_cursor < 1 {
+                            p.settings_cursor += 1;
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        match p.settings_cursor {
+                            0 => p.remove_branch = !p.remove_branch,
+                            1 => p.keep_on_disk = !p.keep_on_disk,
+                            _ => {}
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    self.compute_cleanup_preview();
+                }
+                _ => {}
+            }
+        } else if step_is(&CleanupStep::Preview) {
+            match key.code {
+                KeyCode::Esc => {
+                    self.cleanup_popup = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        p.scroll = p.scroll.saturating_sub(1);
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        p.scroll = p.scroll.saturating_add(1);
+                    }
+                }
+                KeyCode::Enter => {
+                    self.start_cleanup();
+                }
+                _ => {}
+            }
+        } else if step_is(&CleanupStep::Executing) {
+            // No keys during execution
+        } else if step_is(&CleanupStep::Done) {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.close_cleanup_popup();
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        p.scroll = p.scroll.saturating_sub(1);
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(p) = &mut self.cleanup_popup {
+                        p.scroll = p.scroll.saturating_add(1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        true
+    }
+
+    /// Compute the dry-run preview.
+    fn compute_cleanup_preview(&mut self) {
+        let popup = match &mut self.cleanup_popup {
+            Some(p) => p,
+            None => return,
+        };
+
+        let selected_candidates: Vec<&cleanup::WorktreeCandidate> = popup
+            .selected
+            .iter()
+            .filter_map(|&i| popup.candidates.get(i))
+            .collect();
+
+        popup.preview = cleanup::preview_cleanup(
+            &popup.repo_path,
+            &selected_candidates,
+            popup.remove_branch,
+            popup.keep_on_disk,
+        );
+        popup.scroll = 0;
+        popup.step = CleanupStep::Preview;
+    }
+
+    /// Start the background cleanup execution.
+    fn start_cleanup(&mut self) {
+        let popup = match &mut self.cleanup_popup {
+            Some(p) => p,
+            None => return,
+        };
+
+        let task_ids: Vec<String> = popup
+            .selected
+            .iter()
+            .filter_map(|&i| popup.candidates.get(i))
+            .map(|c| c.task_id.clone())
+            .collect();
+
+        let repo_path = popup.repo_path.clone();
+        let remove_branch = popup.remove_branch;
+        let keep_on_disk = popup.keep_on_disk;
+
+        popup.step = CleanupStep::Executing;
+        popup.started_at = Some(std::time::Instant::now());
+
+        popup.handle = Some(std::thread::spawn(move || {
+            cleanup::execute_cleanup(&repo_path, &task_ids, remove_branch, keep_on_disk)
+        }));
+    }
+
+    /// Poll for background cleanup completion (call each tick).
+    pub fn cleanup_popup_check_completion(&mut self) {
+        let popup = match &mut self.cleanup_popup {
+            Some(p) if p.step == CleanupStep::Executing => p,
+            _ => return,
+        };
+
+        let handle = match popup.handle.take() {
+            Some(h) => h,
+            None => return,
+        };
+
+        if handle.is_finished() {
+            popup.results = Some(
+                handle
+                    .join()
+                    .unwrap_or_else(|_| {
+                        vec![cleanup::CleanupResult {
+                            task_id: "?".to_string(),
+                            success: false,
+                            message: "Thread panicked".to_string(),
+                        }]
+                    }),
+            );
+            popup.step = CleanupStep::Done;
+            popup.scroll = 0;
+        } else {
+            popup.handle = Some(handle);
+        }
+    }
+
+    /// Close the cleanup popup and refresh data.
+    pub fn close_cleanup_popup(&mut self) {
+        let should_refresh = self
+            .cleanup_popup
+            .as_ref()
+            .is_some_and(|p| p.results.is_some());
+        self.cleanup_popup = None;
+        if should_refresh {
+            self.refresh();
+        }
     }
 
     /// Navigate to the selected search result and close the popup.

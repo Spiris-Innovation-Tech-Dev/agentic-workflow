@@ -301,7 +301,15 @@ def _normalize_phase(phase: str) -> str:
 
 def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
     to_phase = _normalize_phase(to_phase)
-    if to_phase not in PHASE_ORDER:
+
+    # Build the valid phase list: PHASE_ORDER + any custom phases from the mode
+    mode_phases = state.get("workflow_mode", {}).get("phases", [])
+    valid_phases = list(PHASE_ORDER)
+    for p in mode_phases:
+        if p not in valid_phases:
+            valid_phases.append(p)
+
+    if to_phase not in valid_phases:
         return False, f"Invalid phase: {to_phase}"
 
     current = _normalize_phase(state["phase"]) if state.get("phase") else None
@@ -311,7 +319,6 @@ def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
         if to_phase == "architect":
             return True, "Starting workflow with architect"
         # Allow starting with any phase if mode doesn't include architect
-        mode_phases = state.get("workflow_mode", {}).get("phases", [])
         if mode_phases and to_phase == mode_phases[0]:
             return True, f"Starting workflow with {to_phase} (mode skips architect)"
         return False, "Workflow must start with architect phase"
@@ -324,20 +331,25 @@ def _can_transition(state: dict, to_phase: str) -> tuple[bool, str]:
             return True, "Looping back to developer due to review issues"
         return False, f"Phase {to_phase} already completed"
 
-    current_idx = PHASE_ORDER.index(current)
-    to_idx = PHASE_ORDER.index(to_phase)
+    # Use mode_phases as the ordering if available, else fall back to PHASE_ORDER
+    ordering = mode_phases if mode_phases else PHASE_ORDER
 
-    if to_idx == current_idx + 1:
-        return True, f"Valid forward transition from {current} to {to_phase}"
+    if current in ordering and to_phase in ordering:
+        current_idx = ordering.index(current)
+        to_idx = ordering.index(to_phase)
 
-    # Allow forward skips when the mode doesn't include intermediate phases
-    if to_idx > current_idx:
-        mode_phases = state.get("workflow_mode", {}).get("phases", [])
-        if mode_phases:
-            # Check that all skipped phases are not in the mode
-            skipped = [PHASE_ORDER[i] for i in range(current_idx + 1, to_idx)]
-            if all(p not in mode_phases for p in skipped):
-                return True, f"Valid forward skip from {current} to {to_phase} (skipped phases not in mode)"
+        if to_idx == current_idx + 1:
+            return True, f"Valid forward transition from {current} to {to_phase}"
+
+        # Allow forward skips when intermediate phases are not in the mode
+        if to_idx > current_idx:
+            if mode_phases:
+                skipped = [ordering[i] for i in range(current_idx + 1, to_idx)]
+                if all(p not in mode_phases for p in skipped):
+                    return True, f"Valid forward skip from {current} to {to_phase} (skipped phases not in mode)"
+    elif current not in ordering and to_phase in ordering:
+        # Current phase is custom/unknown, allow transition to any mode phase
+        return True, f"Transition from custom phase {current} to {to_phase}"
 
     if to_phase == "developer" and current in ("reviewer", "skeptic"):
         return True, f"Valid loop-back from {current} to developer"
@@ -2034,6 +2046,60 @@ AUTO_DETECT_RULES = {
 }
 
 
+def _resolve_mode(mode_name: str, task_id: Optional[str] = None) -> Optional[dict]:
+    """Resolve a workflow mode by name, checking config first then hardcoded defaults.
+
+    This allows projects to define custom modes in their workflow-config.yaml
+    under workflow_modes.modes, which take precedence over the hardcoded WORKFLOW_MODES.
+
+    Args:
+        mode_name: The mode name to resolve (e.g., "full", "turbo", or a custom name)
+        task_id: Optional task ID for config resolution
+
+    Returns:
+        Mode config dict with "phases", "description", "estimated_cost", or None if not found
+    """
+    # Check hardcoded modes first (fast path for standard modes)
+    if mode_name in WORKFLOW_MODES:
+        return WORKFLOW_MODES[mode_name]
+
+    # Check config for custom modes
+    try:
+        from .config_tools import config_get_effective
+        effective = config_get_effective(task_id=task_id)
+        config = effective.get("config", {})
+        custom_modes = config.get("workflow_modes", {}).get("modes", {})
+        if mode_name in custom_modes:
+            return custom_modes[mode_name]
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_all_mode_names(task_id: Optional[str] = None) -> list[str]:
+    """Get all available mode names (hardcoded + config-defined).
+
+    Args:
+        task_id: Optional task ID for config resolution
+
+    Returns:
+        List of all known mode names
+    """
+    modes = list(WORKFLOW_MODES.keys())
+    try:
+        from .config_tools import config_get_effective
+        effective = config_get_effective(task_id=task_id)
+        config = effective.get("config", {})
+        custom_modes = config.get("workflow_modes", {}).get("modes", {})
+        for name in custom_modes:
+            if name not in modes:
+                modes.append(name)
+    except Exception:
+        pass
+    return modes
+
+
 def workflow_detect_mode(
     task_description: str,
     files_affected: Optional[list[str]] = None
@@ -2139,19 +2205,16 @@ def workflow_set_mode(
 ) -> dict[str, Any]:
     """Set the workflow mode for a task.
 
+    Supports both built-in modes (full, turbo, fast, minimal) and custom modes
+    defined in workflow-config.yaml under workflow_modes.modes.
+
     Args:
-        mode: Workflow mode (full, fast, minimal, auto)
+        mode: Workflow mode name (built-in or custom) or "auto" for auto-detection
         task_id: Task identifier. If not provided, uses active task.
 
     Returns:
         Updated task state with mode configuration
     """
-    if mode not in ["full", "turbo", "fast", "minimal", "auto"]:
-        return {
-            "success": False,
-            "error": f"Invalid mode '{mode}'. Must be one of: full, turbo, fast, minimal, auto"
-        }
-
     task_dir = find_task_dir(task_id)
     if not task_dir:
         return {
@@ -2160,6 +2223,7 @@ def workflow_set_mode(
         }
 
     state = _load_state(task_dir)
+    resolved_task_id = state.get("task_id")
 
     if mode == "auto":
         # Auto-detect based on task description
@@ -2173,6 +2237,14 @@ def workflow_set_mode(
             "confidence": detection["confidence"]
         }
     else:
+        # Resolve mode from hardcoded defaults + config custom modes
+        resolved = _resolve_mode(mode, task_id=resolved_task_id)
+        if resolved is None:
+            available = _get_all_mode_names(task_id=resolved_task_id)
+            return {
+                "success": False,
+                "error": f"Invalid mode '{mode}'. Available modes: {', '.join(available + ['auto'])}"
+            }
         state["workflow_mode"] = {
             "requested": mode,
             "effective": mode,
@@ -2182,15 +2254,17 @@ def workflow_set_mode(
 
     # Update required phases based on mode
     effective_mode = state["workflow_mode"]["effective"]
-    mode_config = WORKFLOW_MODES.get(effective_mode, WORKFLOW_MODES["full"])
+    mode_config = _resolve_mode(effective_mode, task_id=resolved_task_id)
+    if mode_config is None:
+        mode_config = WORKFLOW_MODES["full"]
     state["workflow_mode"]["phases"] = mode_config["phases"]
-    state["workflow_mode"]["estimated_cost"] = mode_config["estimated_cost"]
+    state["workflow_mode"]["estimated_cost"] = mode_config.get("estimated_cost", "unknown")
 
     _save_state(task_dir, state)
 
     return {
         "success": True,
-        "task_id": state.get("task_id"),
+        "task_id": resolved_task_id,
         "workflow_mode": state["workflow_mode"],
         "message": f"Workflow mode set to {effective_mode}"
     }
@@ -2224,7 +2298,7 @@ def workflow_get_mode(
     return {
         "task_id": state.get("task_id"),
         "workflow_mode": mode,
-        "available_modes": list(WORKFLOW_MODES.keys())
+        "available_modes": _get_all_mode_names(task_id=state.get("task_id"))
     }
 
 

@@ -33,6 +33,7 @@ pub fn draw(frame: &mut Frame, _app: &App) {
         key_line("F3", "Search across tasks & documents", key_style),
         key_line("F4", "Create new worktree (on repo row)", key_style),
         key_line("F5", "Force refresh", key_style),
+        key_line("F6", "Cleanup worktrees (on repo row)", key_style),
         key_line("F10", "Quit", key_style),
         Line::from(""),
         Line::from(Span::styled("Navigation", bold)),

@@ -1,4 +1,4 @@
-use crate::app::{ActiveView, App, CreateStep, DetailMode, FocusPane, LaunchStep};
+use crate::app::{ActiveView, App, CleanupStep, CreateStep, DetailMode, FocusPane, LaunchStep};
 use crate::ui::styles;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -81,9 +81,10 @@ fn draw_fkey_bar(frame: &mut Frame, app: &App, area: Rect) {
     spans.extend(fkey_spans(3, "Search"));
     spans.extend(fkey_spans(4, "New"));
     spans.extend(fkey_spans(5, "Rfrsh"));
+    spans.extend(fkey_spans(6, "Clean"));
 
     // Fill gap to push F10 to the right
-    // Calculate used width: " " + 5 keys + F10 key
+    // Calculate used width: " " + keys + F10 key
     // Each key: "F{n}" (2-3 chars) + label + " " spacer
     let used: usize = 1 // leading space
         + fkey_width(1, "Help")
@@ -91,6 +92,7 @@ fn draw_fkey_bar(frame: &mut Frame, app: &App, area: Rect) {
         + fkey_width(3, "Search")
         + fkey_width(4, "New")
         + fkey_width(5, "Rfrsh")
+        + fkey_width(6, "Clean")
         + fkey_width(10, "Quit");
     let total_width = area.width as usize;
     let gap = total_width.saturating_sub(used);
@@ -138,6 +140,7 @@ fn context_hints(app: &App) -> String {
     // Popups get their own hints in the F-key bar, so just show navigation hints
     if app.search_popup.is_some()
         || app.create_popup.is_some()
+        || app.cleanup_popup.is_some()
         || app.launch_popup.is_some()
     {
         return String::new();
@@ -179,6 +182,21 @@ fn popup_hints(app: &App) -> Option<String> {
             CreateStep::Confirm => " Enter create  Esc cancel".to_string(),
             CreateStep::Executing => " Creating worktree...".to_string(),
             CreateStep::Done => " Enter confirm  Esc close".to_string(),
+        });
+    }
+    if let Some(popup) = &app.cleanup_popup {
+        return Some(match popup.step {
+            CleanupStep::SelectWorktrees => {
+                let n = popup.selected.len();
+                format!(
+                    " Space toggle  a select-all  Enter next ({} selected)  Esc cancel",
+                    n
+                )
+            }
+            CleanupStep::Settings => " Space toggle  Enter preview  Esc cancel".to_string(),
+            CleanupStep::Preview => " Enter EXECUTE  j/k scroll  Esc cancel".to_string(),
+            CleanupStep::Executing => " Cleaning worktrees...".to_string(),
+            CleanupStep::Done => " Enter close  Esc close".to_string(),
         });
     }
     if let Some(popup) = &app.launch_popup {

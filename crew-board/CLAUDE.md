@@ -24,6 +24,7 @@ src/
 ├── discovery.rs     # Repo discovery: --repo paths + --scan directories
 ├── launcher.rs      # Terminal launch: detect env, spawn wt.exe/tmux/osascript, color schemes
 ├── worktree.rs      # Native worktree creation: task ID, git ops, state.json, symlink
+├── cleanup.rs       # Worktree cleanup: candidate discovery, dry-run preview, execute via script
 ├── data/
 │   ├── mod.rs       # RepoData: aggregates tasks + issues + config per repo
 │   ├── task.rs      # Parses .tasks/*/state.json, discovers *.md artifacts
@@ -38,7 +39,8 @@ src/
     ├── cost_view.rs  # View 4: cost summary from workflow state
     ├── status_bar.rs # Bottom: view tabs + contextual keybinding hints + aggregate stats
     ├── launch_popup.rs # F2 popup: terminal + AI host selection
-    ├── create_popup.rs # n popup: multi-step worktree creation wizard
+    ├── create_popup.rs # F4 popup: multi-step worktree creation wizard
+    ├── cleanup_popup.rs# F6 popup: multi-select worktree cleanup with dry-run preview
     ├── search_popup.rs # F3 popup: full-text search across tasks + artifacts
     └── styles.rs     # 8 crew color schemes, phase styles, selection/border/hint helpers
 ```
@@ -74,9 +76,10 @@ Keys are routed in priority order:
 1. Help overlay open → any key closes it
 2. Search popup open → search-specific keys
 3. Create worktree popup open → popup keys (text input, selection, toggles)
-4. Launch popup open → popup keys only
-5. Right pane focused + non-Overview mode → doc/history navigation
-6. Default → tree nav, view switching, shortcuts
+4. Cleanup worktree popup open → popup keys (multi-select, toggles, preview)
+5. Launch popup open → popup keys only
+6. Right pane focused + non-Overview mode → doc/history navigation
+7. Default → tree nav, view switching, shortcuts
 
 **Esc behavior:** Esc never quits the application. It only closes popups, backs out of detail views, or switches focus from right pane to left pane. Use `q` or `F10` to quit.
 
@@ -95,6 +98,18 @@ Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`.
 
 The worktree is created at `../{repo-name}-worktrees/TASK_XXX` with branch `crew/{slugified-description}`.
 
+### Worktree Cleanup (`F6` key)
+Press `F6` on a repo row to clean up worktrees:
+1. Multi-select worktrees with Space (completed tasks pre-selected, `a` toggles all)
+2. Toggle settings: delete branch, keep on disk (recyclable)
+3. Dry-run preview showing exact git commands and warnings (unmerged branches, incomplete workflows)
+4. Background thread runs `scripts/cleanup-worktree.py` for each selected task
+5. Shows results with success/failure per worktree
+
+**Safety:** Only removes git worktree directories and branches. The `.tasks/` directory and all task artifacts are NEVER deleted.
+
+**Modes:** Remove (git worktree remove + state update) or Recycle (mark recyclable, keep on disk for reuse).
+
 ### UI Style System
 Central style helpers in `styles.rs` ensure visual consistency:
 - `selected_style()` — blue background (#2A4A6B) for selected rows everywhere
@@ -107,7 +122,7 @@ Pane focus is indicated by bold border + `◄` marker in the title. Detail pane 
 ### Status Bar (Norton Commander-style)
 Two-line status bar:
 - **Line 1**: View tabs + contextual navigation hints + aggregate stats
-- **Line 2**: NC-style F-key bar: `F1Help  F2Launch  F3Search  F4New  F5Rfrsh  ...  F10Quit`
+- **Line 2**: NC-style F-key bar: `F1Help  F2Launch  F3Search  F4New  F5Rfrsh  F6Clean  ...  F10Quit`
 
 When a popup is open, line 2 shows popup-specific hints instead of the F-key bar.
 
@@ -162,6 +177,6 @@ Follow the pattern established by `launch_popup.rs` and `create_popup.rs`:
 - **Login shells**: `bash -lic` sources profile which may reset cwd. Always prefix commands with `cd <dir> &&`.
 - **Tree rebuild**: Forgetting `rebuild_tree()` after changing `expanded_repos` causes stale cursor state.
 - **Detail mode reset**: Must reset `detail_mode` to `Overview` when tree cursor changes.
-- **Popup priority**: Help overlay > search popup > create popup > launch popup > detail nav > default. All must be checked before default key handling.
+- **Popup priority**: Help overlay > search popup > create popup > cleanup popup > launch popup > detail nav > default. All must be checked before default key handling.
 - **Background threads**: `create_worktree()` runs on `std::thread::spawn`. Poll `JoinHandle::is_finished()` each tick (250ms). No async runtime needed.
-- **`F4` key scope**: Only works on Repo rows — `open_create_popup()` returns early on Task rows.
+- **`F4`/`F6` key scope**: Only works on Repo rows — `open_create_popup()` and `open_cleanup_popup()` return early on Task rows.

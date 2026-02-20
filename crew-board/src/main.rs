@@ -1,4 +1,5 @@
 mod app;
+mod cleanup;
 mod data;
 mod discovery;
 mod launcher;
@@ -119,6 +120,10 @@ fn run_app(
                 else if app.create_popup.is_some() {
                     app.create_popup_handle_key(key);
                 }
+                // Priority 2.5: Cleanup worktree popup
+                else if app.cleanup_popup.is_some() {
+                    app.cleanup_popup_handle_key(key);
+                }
                 // Priority 3: Launch popup
                 else if app.launch_popup.is_some() {
                     match key.code {
@@ -188,6 +193,9 @@ fn run_app(
                         // Refresh
                         (_, KeyCode::F(5)) => app.refresh(),
 
+                        // Cleanup worktrees
+                        (_, KeyCode::F(6)) => app.open_cleanup_popup(),
+
                         // Documents & History (right pane shortcuts)
                         (_, KeyCode::Char('d')) => app.enter_doc_list(),
                         (_, KeyCode::Char('h')) => app.enter_history(),
@@ -228,6 +236,9 @@ fn run_app(
 
         // Check for create worktree completion each tick
         app.create_popup_check_completion();
+
+        // Check for cleanup worktree completion each tick
+        app.cleanup_popup_check_completion();
 
         // Auto-refresh on poll interval
         if app.last_refresh.elapsed() >= Duration::from_secs(app.poll_interval_secs) {

@@ -950,6 +950,28 @@ def main():
     else:
         setup_summary = ".tasks/ symlinked, settings copy skipped"
 
+    # Copy workflow config if it exists (untracked project-level overrides)
+    WORKFLOW_CONFIG_PATHS = [
+        ".claude/workflow-config.yaml",
+        ".copilot/workflow-config.yaml",
+        ".gemini/workflow-config.yaml",
+    ]
+    configs_copied = 0
+    for wf_config in WORKFLOW_CONFIG_PATHS:
+        src = os.path.join(main_repo_abs, wf_config)
+        dest = os.path.join(worktree_abs, wf_config)
+        if os.path.isfile(src) and not os.path.isfile(dest):
+            if not dry_run:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                import shutil
+                shutil.copy2(src, dest)
+                configs_copied += 1
+            else:
+                print(f"  [dry-run] Would copy {src} -> {dest}", file=sys.stderr)
+                configs_copied += 1
+    if configs_copied:
+        setup_summary += f", {configs_copied} workflow config(s) copied"
+
     # -----------------------------------------------------------------------
     # Step 12: Fix paths for WSL/Windows compatibility
     # -----------------------------------------------------------------------

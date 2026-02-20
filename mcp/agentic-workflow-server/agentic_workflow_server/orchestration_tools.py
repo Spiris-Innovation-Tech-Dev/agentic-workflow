@@ -751,18 +751,19 @@ def _build_phase_action(
     """Build the action dict for spawning an agent phase."""
     task_id = state.get("task_id", "")
 
-    # Get agent prompt path
-    prompt_file = AGENT_PROMPT_FILES.get(agent, f"{agent}.md")
+    # Get agent prompt path (supports custom agents via {agent}.md fallback)
+    prompt_file = AGENT_PROMPT_FILES.get(agent, f"{agent.replace('_', '-')}.md")
     agents_dir = Path.home() / ".claude" / "agents"
     agent_prompt_path = str(agents_dir / prompt_file)
 
-    # Get effort level
+    # Get effort level (custom agents get "high" default via workflow_get_effort_level)
     effort_result = workflow_get_effort_level(agent=agent, task_id=task_id)
     effort = effort_result.get("effort", "high")
 
-    # Get max turns
+    # Get max turns from config first, then hardcoded defaults
+    subagent_limits = config.get("subagent_limits", {}).get("max_turns", {})
     category = AGENT_LIMIT_CATEGORY.get(agent, "planning_agents")
-    max_turns = SUBAGENT_LIMITS.get(category, 30)
+    max_turns = subagent_limits.get(category, SUBAGENT_LIMITS.get(category, 30))
 
     # Get context files
     context_files = _get_context_files(agent, state, task_dir)

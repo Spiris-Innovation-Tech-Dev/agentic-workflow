@@ -1,4 +1,5 @@
 pub mod beads_view;
+pub mod cleanup_popup;
 pub mod config_view;
 pub mod cost_view;
 pub mod create_popup;
@@ -42,6 +43,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     if app.create_popup.is_some() {
         create_popup::draw(frame, app);
+    }
+    if app.cleanup_popup.is_some() {
+        cleanup_popup::draw(frame, app);
     }
     if app.search_popup.is_some() {
         search_popup::draw(frame, app);
