@@ -1,5 +1,5 @@
 use crate::app::{App, DetailMode, FocusPane, TreeRow};
-use crate::data::task::{self, PHASE_ORDER};
+use crate::data::task::{self, Interaction, Discovery, PHASE_ORDER};
 use crate::ui::styles;
 use ratatui::{
     layout::Rect,
@@ -622,6 +622,46 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         lines.push(Line::from(""));
     }
 
+    // ── Interactions ──
+    render_interactions_section(&mut lines, &app.cached_interactions);
+
+    // ── Discoveries ──
+    render_discoveries_section(&mut lines, &app.cached_discoveries);
+
+    // ── Knowledge Base ──
+    if let Some(ref kb) = task.knowledge_base_inventory {
+        let has_content = kb.path.as_ref().is_some_and(|p| !p.is_empty()) || !kb.files.is_empty();
+        if has_content {
+            lines.push(Line::from(Span::styled(
+                "── Knowledge Base ──",
+                styles::header_style(),
+            )));
+            if let Some(ref path) = kb.path {
+                if !path.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("  Path: ", styles::dim_style()),
+                        Span::raw(path.as_str()),
+                    ]));
+                }
+            }
+            if !kb.files.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  {} files:", kb.files.len()),
+                        styles::dim_style(),
+                    ),
+                ]));
+                for f in &kb.files {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ", styles::dim_style()),
+                        Span::raw(f.as_str()),
+                    ]));
+                }
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
     // ── Worktree ──
     if let Some(ref wt) = task.worktree {
         let accent = styles::get_scheme(wt.color_scheme_index).tab;
@@ -697,7 +737,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
     let decisions = task::parse_decisions(&task.human_decisions);
     if !decisions.is_empty() {
         lines.push(Line::from(Span::styled(
-            "── Human Decisions ──",
+            format!("── Human Decisions ({}) ──", decisions.len()),
             styles::header_style(),
         )));
         for (i, decision) in decisions.iter().enumerate() {
@@ -717,6 +757,12 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
                     },
                 ),
             ]));
+            if !decision.timestamp.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("     at {}", format_timestamp(&decision.timestamp)),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
             if !decision.notes.is_empty() {
                 let note_lines = wrap_text(&decision.notes, 60);
                 for nl in note_lines {
@@ -728,6 +774,49 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
             }
             lines.push(Line::from(""));
         }
+    }
+
+    // ── Files Changed ──
+    if !task.files_changed.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("── Files Changed ({}) ──", task.files_changed.len()),
+            styles::header_style(),
+        )));
+        for f in &task.files_changed {
+            lines.push(Line::from(vec![
+                Span::styled("  ", styles::dim_style()),
+                Span::styled(f.as_str(), Style::default().fg(Color::White)),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // ── Optional Phases ──
+    if !task.optional_phases.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("── Optional Phases ({}) ──", task.optional_phases.len()),
+            styles::header_style(),
+        )));
+        for phase_name in &task.optional_phases {
+            let reason = task
+                .optional_phase_reasons
+                .as_ref()
+                .and_then(|v| v.get(phase_name))
+                .and_then(|r| r.get("reason"))
+                .and_then(|r| r.as_str())
+                .unwrap_or("");
+            lines.push(Line::from(vec![
+                Span::styled("  + ", Style::default().fg(Color::Magenta)),
+                Span::styled(phase_name.as_str(), Style::default().fg(Color::Magenta)),
+            ]));
+            if !reason.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("    {}", reason),
+                    styles::dim_style(),
+                )));
+            }
+        }
+        lines.push(Line::from(""));
     }
 
     // ── Review Issues ──
@@ -845,14 +934,34 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         "── Timeline ──",
         styles::header_style(),
     )));
+    if let Some(ref status) = task.status {
+        let status_style = match status.as_str() {
+            "completed" => Style::default().fg(Color::Green),
+            "active" | "in_progress" => Style::default().fg(Color::Yellow),
+            _ => Style::default().fg(Color::White),
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Status:    ", styles::dim_style()),
+            Span::styled(status.as_str(), status_style),
+        ]));
+    }
     lines.push(Line::from(vec![
-        Span::styled("  Created: ", styles::dim_style()),
+        Span::styled("  Created:   ", styles::dim_style()),
         Span::raw(format_timestamp(&task.created_at)),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  Updated: ", styles::dim_style()),
+        Span::styled("  Updated:   ", styles::dim_style()),
         Span::raw(format_timestamp(&task.updated_at)),
     ]));
+    if let Some(ref completed_at) = task.completed_at {
+        lines.push(Line::from(vec![
+            Span::styled("  Completed: ", styles::dim_style()),
+            Span::styled(
+                format_timestamp(completed_at),
+                Style::default().fg(Color::Green),
+            ),
+        ]));
+    }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
@@ -977,6 +1086,121 @@ fn draw_repo_summary(
         .scroll((app.detail_scroll, 0));
 
     frame.render_widget(paragraph, area);
+}
+
+// ── Interactions & Discoveries Renderers ─────────────────────────────────
+
+fn render_interactions_section(lines: &mut Vec<Line>, interactions: &[Interaction]) {
+    if interactions.is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(Span::styled(
+        format!("── Interactions ({} entries) ──", interactions.len()),
+        styles::header_style(),
+    )));
+
+    // Group by phase
+    let mut current_phase = String::new();
+    for entry in interactions {
+        // Phase header when phase changes
+        if !entry.phase.is_empty() && entry.phase != current_phase {
+            current_phase = entry.phase.clone();
+            lines.push(Line::from(Span::styled(
+                format!("  {}:", current_phase),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+
+        let (marker, marker_color) = match entry.type_.as_str() {
+            "checkpoint_question" => ("[Q]", Color::Cyan),
+            "checkpoint_response" => ("[A]", Color::Green),
+            "escalation_question" => ("[?]", Color::Magenta),
+            "escalation_response" => ("[!]", Color::Magenta),
+            "guidance" => ("[G]", Color::Blue),
+            _ => match entry.role.as_str() {
+                "agent" => ("[>]", Color::DarkGray),
+                "human" => ("[H]", Color::Green),
+                "system" => ("[S]", Color::DarkGray),
+                _ => ("[-]", Color::DarkGray),
+            },
+        };
+
+        // Truncate content to 120 chars
+        let content = if entry.content.len() > 120 {
+            format!("{}...", &entry.content[..120])
+        } else {
+            entry.content.clone()
+        };
+
+        // Wrap content lines
+        let content_lines = wrap_text(&content, 70);
+        if let Some((first, rest)) = content_lines.split_first() {
+            lines.push(Line::from(vec![
+                Span::styled(format!("    {} ", marker), Style::default().fg(marker_color)),
+                Span::raw(first.clone()),
+            ]));
+            for continuation in rest {
+                lines.push(Line::from(Span::styled(
+                    format!("        {}", continuation),
+                    styles::dim_style(),
+                )));
+            }
+        }
+    }
+    lines.push(Line::from(""));
+}
+
+fn render_discoveries_section(lines: &mut Vec<Line>, discoveries: &[Discovery]) {
+    if discoveries.is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(Span::styled(
+        format!("── Discoveries ({}) ──", discoveries.len()),
+        styles::header_style(),
+    )));
+
+    for entry in discoveries {
+        let (icon, cat_color) = match entry.category.as_str() {
+            "decision" => ("D", Color::Cyan),
+            "pattern" => ("P", Color::Blue),
+            "gotcha" => ("!", Color::Yellow),
+            "blocker" => ("X", Color::Red),
+            "preference" => ("~", Color::Magenta),
+            _ => ("-", Color::DarkGray),
+        };
+
+        let content = if entry.content.len() > 120 {
+            format!("{}...", &entry.content[..120])
+        } else {
+            entry.content.clone()
+        };
+
+        let content_lines = wrap_text(&content, 65);
+        if let Some((first, rest)) = content_lines.split_first() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  [{}] ", icon),
+                    Style::default().fg(cat_color),
+                ),
+                Span::styled(
+                    format!("{}: ", entry.category),
+                    Style::default().fg(cat_color),
+                ),
+                Span::raw(first.clone()),
+            ]));
+            for continuation in rest {
+                lines.push(Line::from(Span::styled(
+                    format!("       {}", continuation),
+                    styles::dim_style(),
+                )));
+            }
+        }
+    }
+    lines.push(Line::from(""));
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

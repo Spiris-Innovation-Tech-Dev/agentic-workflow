@@ -23,6 +23,8 @@ pub struct TaskState {
     #[serde(default)]
     pub concerns: Vec<serde_json::Value>,
     #[serde(default)]
+    pub knowledge_base_inventory: Option<KnowledgeBaseInventory>,
+    #[serde(default)]
     pub worktree: Option<WorktreeInfo>,
     #[serde(default)]
     pub description: String,
@@ -30,6 +32,16 @@ pub struct TaskState {
     pub workflow_mode: Option<WorkflowMode>,
     #[serde(default)]
     pub cost_summary: Option<serde_json::Value>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub files_changed: Vec<String>,
+    #[serde(default)]
+    pub optional_phases: Vec<String>,
+    #[serde(default)]
+    pub optional_phase_reasons: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
@@ -44,6 +56,15 @@ pub struct ImplementationProgress {
     pub current_step: u32,
     #[serde(default)]
     pub steps_completed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[allow(dead_code)]
+pub struct KnowledgeBaseInventory {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -123,6 +144,37 @@ pub struct HumanDecision {
     pub checkpoint: String,
     pub decision: String,
     pub notes: String,
+    pub timestamp: String,
+}
+
+/// A single interaction entry from interactions.jsonl.
+#[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
+pub struct Interaction {
+    #[serde(default)]
+    pub timestamp: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default, rename = "type")]
+    pub type_: String,
+    #[serde(default)]
+    pub agent: String,
+    #[serde(default)]
+    pub phase: String,
+}
+
+/// A discovery entry from memory/discoveries.jsonl.
+#[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
+pub struct Discovery {
+    #[serde(default)]
+    pub timestamp: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub content: String,
 }
 
 /// Known artifact files and their display labels.
@@ -201,6 +253,36 @@ pub fn load_artifacts(task_dir: &Path) -> Vec<TaskArtifact> {
     artifacts
 }
 
+/// Load interactions from a task's interactions.jsonl file.
+/// Returns empty vec if file doesn't exist or can't be parsed.
+pub fn load_interactions(task_dir: &Path) -> Vec<Interaction> {
+    let path = task_dir.join("interactions.jsonl");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<Interaction>(line).ok())
+        .collect()
+}
+
+/// Load discoveries from a task's memory/discoveries.jsonl file.
+/// Returns empty vec if file doesn't exist or can't be parsed.
+pub fn load_discoveries(task_dir: &Path) -> Vec<Discovery> {
+    let path = task_dir.join("memory").join("discoveries.jsonl");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<Discovery>(line).ok())
+        .collect()
+}
+
 /// Parse human_decisions from state JSON into structured form.
 pub fn parse_decisions(decisions: &[serde_json::Value]) -> Vec<HumanDecision> {
     decisions
@@ -216,6 +298,11 @@ pub fn parse_decisions(decisions: &[serde_json::Value]) -> Vec<HumanDecision> {
                 notes: v
                     .get("notes")
                     .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                timestamp: v
+                    .get("timestamp")
+                    .and_then(|t| t.as_str())
                     .unwrap_or("")
                     .to_string(),
             })
@@ -279,6 +366,12 @@ impl TaskState {
 
     /// Short display string for current status.
     pub fn status_label(&self) -> &str {
+        // Use explicit status field if present
+        if let Some(ref status) = self.status {
+            if status == "completed" {
+                return "done";
+            }
+        }
         if self.is_complete() {
             "done"
         } else if let Some(ref phase) = self.phase {
