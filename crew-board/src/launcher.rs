@@ -16,6 +16,7 @@ pub enum AiHost {
     Claude,
     Copilot,
     Gemini,
+    OpenCode,
 }
 
 /// Color scheme with hex strings for terminal commands.
@@ -48,6 +49,7 @@ impl AiHost {
             AiHost::Claude => "Claude Code",
             AiHost::Copilot => "GitHub Copilot",
             AiHost::Gemini => "Gemini CLI",
+            AiHost::OpenCode => "OpenCode",
         }
     }
 
@@ -56,6 +58,7 @@ impl AiHost {
             AiHost::Claude => "claude",
             AiHost::Copilot => "gh cs",
             AiHost::Gemini => "gemini",
+            AiHost::OpenCode => "opencode",
         }
     }
 }
@@ -118,11 +121,14 @@ pub fn detect_ai_hosts() -> Vec<AiHost> {
     if command_exists("gemini") {
         hosts.push(AiHost::Gemini);
     }
+    if command_exists("opencode") {
+        hosts.push(AiHost::OpenCode);
+    }
 
-    // Always show all three as options even if not detected,
+    // Always show all options even if not detected,
     // since they might be available in the launched shell
     if hosts.is_empty() {
-        hosts = vec![AiHost::Claude, AiHost::Copilot, AiHost::Gemini];
+        hosts = vec![AiHost::Claude, AiHost::Copilot, AiHost::Gemini, AiHost::OpenCode];
     }
 
     hosts
