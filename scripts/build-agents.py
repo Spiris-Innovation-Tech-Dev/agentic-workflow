@@ -67,6 +67,24 @@ GEMINI_AGENT_TOOLS = {
     "crew-status":            ["read_file", "list_directory", "run_shell_command"],
 }
 
+# OpenCode sub-agent tool restrictions per agent role
+# OpenCode uses boolean tool maps: {tool_name: false} to disable
+OPENCODE_AGENT_TOOLS = {
+    "architect":             {"write": False, "edit": False, "bash": False, "patch": False},
+    "developer":             {"write": False, "edit": False, "bash": False, "patch": False},
+    "reviewer":              {"write": False, "edit": False, "bash": False, "patch": False},
+    "skeptic":               {"write": False, "edit": False, "bash": False, "patch": False},
+    "implementer":           {},  # All tools enabled
+    "feedback":              {"write": False, "edit": False, "patch": False},
+    "technical-writer":      {"bash": False, "patch": False},
+    "security-auditor":      {"write": False, "edit": False, "bash": False, "patch": False},
+    "performance-analyst":   {"write": False, "edit": False, "patch": False},
+    "api-guardian":          {"write": False, "edit": False, "bash": False, "patch": False},
+    "accessibility-reviewer": {"write": False, "edit": False, "bash": False, "patch": False},
+    "crew-worktree":          {"patch": False},
+    "crew-status":            {"write": False, "edit": False, "patch": False},
+}
+
 
 def read_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -285,6 +303,115 @@ def build_gemini(output_dir: Path):
 
 
 # ---------------------------------------------------------------------------
+# OpenCode adapter
+# ---------------------------------------------------------------------------
+
+def _opencode_frontmatter(name: str, description: str, tools: dict[str, bool]) -> str:
+    """Generate YAML frontmatter for an OpenCode agent .md file."""
+    lines = [
+        "---",
+        f'description: "{description}"',
+        "mode: subagent",
+    ]
+    if tools:
+        lines.append("tools:")
+        for tool_name, enabled in tools.items():
+            lines.append(f"  {tool_name}: {str(enabled).lower()}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def build_opencode(output_dir: Path):
+    """Build agents in OpenCode format: .opencode/agents/*.md and .opencode/commands/*.md."""
+    agents_out = output_dir / ".opencode" / "agents"
+    agents_out.mkdir(parents=True, exist_ok=True)
+
+    preamble_path = PREAMBLES_DIR / "opencode.md"
+    preamble = read_file(preamble_path) if preamble_path.exists() else ""
+
+    # Build orchestrator from platform-specific template
+    orchestrator_path = ORCHESTRATORS_DIR / "opencode.md"
+    if orchestrator_path.exists():
+        orch_body = read_file(orchestrator_path)
+        desc = AGENT_DESCRIPTIONS.get("orchestrator", "Workflow Orchestrator")
+        # OpenCode orchestrator is a primary agent (not subagent)
+        orch_fm = (
+            "---\n"
+            f'description: "{desc}"\n'
+            "mode: primary\n"
+            "---\n"
+        )
+        dest = agents_out / "crew.md"
+        dest.write_text(orch_fm + "\n" + orch_body, encoding="utf-8")
+        print(f"  + crew.md (orchestrator)")
+    else:
+        print(f"  ! No orchestrator template at {orchestrator_path}")
+
+    # Build command agents as OpenCode commands
+    commands_out = output_dir / ".opencode" / "commands"
+
+    count = 0
+    cmd_count = 0
+    for agent_path in list_agents():
+        name = agent_path.stem
+        body = read_file(agent_path)
+
+        if name == "orchestrator":
+            continue
+
+        desc = AGENT_DESCRIPTIONS.get(name, f"Crew agent: {name}")
+
+        if name in COMMAND_AGENTS:
+            # Command agents go to .opencode/commands/ with command frontmatter
+            commands_out.mkdir(parents=True, exist_ok=True)
+            out_name = _agent_output_name(name)
+            cmd_fm = (
+                "---\n"
+                f'description: "{desc}"\n'
+                "agent: build\n"
+                "subtask: true\n"
+                "---\n"
+            )
+            suffix = COMMAND_SUFFIXES.get(name, "\n\nArguments: $ARGUMENTS\n")
+            content = _substitute_platform(
+                cmd_fm + "\n" + preamble + "\n" + body.rstrip() + "\n" + suffix.replace("$ARGS", "$ARGUMENTS"),
+                "opencode"
+            )
+            dest = commands_out / f"{out_name}.md"
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + commands/{out_name}.md")
+            cmd_count += 1
+        else:
+            # Regular agents go to .opencode/agents/
+            tools = OPENCODE_AGENT_TOOLS.get(name, {})
+            frontmatter = _opencode_frontmatter(name, desc, tools)
+
+            out_name = _agent_output_name(name)
+            content = _substitute_platform(frontmatter + "\n" + preamble + "\n" + body, "opencode")
+            dest = agents_out / f"{out_name}.md"
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + {out_name}.md")
+            count += 1
+
+    # Copy main commands from commands/ directory (crew.md, crew-config.md, crew-resume.md)
+    # These are the slash commands that drive the workflow, separate from command-agents.
+    commands_src = REPO_ROOT / "commands"
+    if commands_src.exists():
+        commands_out.mkdir(parents=True, exist_ok=True)
+        for cmd_path in sorted(commands_src.glob("*.md")):
+            body = read_file(cmd_path)
+            # Substitute $ARGS → $ARGUMENTS for OpenCode's variable syntax
+            content = body.replace("$ARGS", "$ARGUMENTS")
+            content = _substitute_platform(content, "opencode")
+            dest = commands_out / cmd_path.name
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + commands/{cmd_path.name}")
+            cmd_count += 1
+
+    print(f"\n  {count} agents + {cmd_count} commands + orchestrator written to {output_dir}")
+
+
+# ---------------------------------------------------------------------------
 # Platform registry
 # ---------------------------------------------------------------------------
 
@@ -303,6 +430,11 @@ PLATFORMS = {
         "build": build_gemini,
         "default_output": lambda: Path.home(),
         "description": "Gemini CLI — sub-agent .md files in ~/.gemini/agents/",
+    },
+    "opencode": {
+        "build": build_opencode,
+        "default_output": lambda: Path.home(),
+        "description": "OpenCode — agent .md files in ~/.opencode/agents/",
     },
 }
 

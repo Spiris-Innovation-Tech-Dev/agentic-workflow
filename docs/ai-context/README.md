@@ -16,7 +16,7 @@ This directory helps AI agents understand and work with this codebase. Read this
 
 The **Agentic Development Workflow** is a multi-agent orchestration system for software development. It coordinates specialized AI agents — architect, developer, reviewer, skeptic, implementer, feedback, and technical-writer — through a structured pipeline that plans, reviews, builds, verifies, and documents code changes.
 
-It runs on **three platforms**: Claude Code (Anthropic), GitHub Copilot CLI, and Gemini CLI — using the same agent definitions and workflow configuration across all of them.
+It runs on **four platforms**: Claude Code (Anthropic), GitHub Copilot CLI, Gemini CLI, and OpenCode — using the same agent definitions and workflow configuration across all of them.
 
 The core infrastructure is an **MCP server** (Model Context Protocol) written in Python that manages workflow state, configuration, and orchestration logic.
 
@@ -53,11 +53,13 @@ agentic-workflow/
 │   ├── hooks-settings.json     # Git hook settings
 │   ├── platform-orchestrators/ # Platform-specific orchestrator prompts
 │   │   ├── copilot.md
-│   │   └── gemini.md
+│   │   ├── gemini.md
+│   │   └── opencode.md
 │   └── platform-preambles/     # Platform-specific agent preambles
 │       ├── claude.md
 │       ├── copilot.md
-│       └── gemini.md
+│       ├── gemini.md
+│       └── opencode.md
 ├── mcp/agentic-workflow-server/  # MCP server (Python)
 │   ├── agentic_workflow_server/
 │   │   ├── server.py           # MCP tool registration & dispatch
@@ -133,7 +135,7 @@ Each task gets a directory under `.tasks/TASK_XXX/` containing:
 Settings flow through four levels (later overrides earlier):
 
 1. **Defaults** — Hardcoded in `config_tools.py:DEFAULT_CONFIG`
-2. **Global** — `~/.claude/workflow-config.yaml` (or Copilot/Gemini equivalent)
+2. **Global** — `~/.claude/workflow-config.yaml` (or Copilot/Gemini/OpenCode equivalent)
 3. **Project** — `<repo>/.claude/workflow-config.yaml`
 4. **Task** — `.tasks/TASK_XXX/config.yaml`
 
@@ -195,6 +197,7 @@ Agent prompts are platform-agnostic markdown. Platform differences are handled b
 
 Commands differ by platform:
 - Claude: `/crew start "task"`, `/crew-worktree "task"`
+- OpenCode: `/crew "task"` (reads Claude commands natively)
 - Copilot/Gemini: `@crew "task"`, `@crew-worktree "task"`
 
 ## Quick Reference for Making Changes

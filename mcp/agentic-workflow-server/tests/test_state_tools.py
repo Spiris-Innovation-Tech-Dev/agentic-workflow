@@ -1559,6 +1559,14 @@ class TestWorktreeSupport:
         # setup_commands should exist regardless
         assert "setup_commands" in result
 
+    def test_create_worktree_opencode_no_settings_copy(self, clean_tasks_dir):
+        workflow_initialize(task_id="TASK_TEST_WT_OC_001")
+        result = workflow_create_worktree(task_id="TASK_TEST_WT_OC_001", ai_host="opencode")
+
+        # Only the .tasks/ symlink, no settings copy (like copilot)
+        assert len(result["setup_commands"]) == 1
+        assert "ln -sfn" in result["setup_commands"][0]
+
 
 class TestAutoLaunch:
     """Test auto-launch terminal command generation for worktree sessions."""
@@ -1774,6 +1782,32 @@ class TestAutoLaunch:
         assert "@crew-resume TASK_TEST_AL_013" in result["resume_prompt"]
         assert "/crew resume" not in result["resume_prompt"]
 
+    def test_opencode_host(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_OC_001")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_OC_001",
+            terminal_env="tmux",
+            ai_host="opencode",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert result["success"] is True
+        cmd = result["launch_commands"][0]
+        assert "opencode" in cmd
+        assert "run" in cmd
+
+    def test_opencode_resume_prompt_slash_syntax(self, clean_tasks_dir):
+        self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_OC_002")
+        result = workflow_get_launch_command(
+            task_id="TASK_TEST_AL_OC_002",
+            terminal_env="tmux",
+            ai_host="opencode",
+            main_repo_path="/home/user/myrepo",
+        )
+
+        assert "/crew resume TASK_TEST_AL_OC_002" in result["resume_prompt"]
+        assert "@crew-resume" not in result["resume_prompt"]
+
 
 class TestLaunchMode:
     """Test terminal_launch_mode setting (window vs tab)."""
@@ -1912,6 +1946,11 @@ class TestBuildResumePrompt:
     def test_copilot_uses_at_syntax(self):
         prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "copilot")
         assert "@crew-resume TASK_001" in prompt
+
+    def test_opencode_uses_slash_syntax(self):
+        prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "opencode")
+        assert "/crew resume TASK_001" in prompt
+        assert "@crew-resume" not in prompt
 
     def test_default_host_is_claude(self):
         prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001")

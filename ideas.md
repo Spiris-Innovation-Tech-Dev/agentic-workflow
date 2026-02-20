@@ -7,7 +7,7 @@
 *   **Human-in-the-Loop Control:** Configurable checkpoints allow for human review and approval at critical stages, balancing automation with oversight.
 *   **Flexible Workflow Modes:** Offers `full`, `turbo`, `fast`, `minimal`, and `auto` modes to adapt to varying task complexities and urgency, optimizing resource use.
 *   **Robust Context Management:** Leverages Gemini integration and state files to preserve and manage context across interactions, enabling complex, multi-turn tasks and resumption of interrupted workflows.
-*   **Cross-Platform Compatibility:** Supports Claude Code, GitHub Copilot CLI, and Gemini CLI, making it accessible to a wider range of users and potentially reducing vendor lock-in.
+*   **Cross-Platform Compatibility:** Supports Claude Code, GitHub Copilot CLI, Gemini CLI, and OpenCode, making it accessible to a wider range of users and potentially reducing vendor lock-in.
 *   **Advanced Features:** Includes loop mode for autonomous iteration, effort levels for thinking depth, server-side compaction for context management, cost tracking, configuration cascade, and Git worktree support for parallel development.
 *   **Detailed State Management & Memory Preservation:** Stores workflow state persistently and allows agents to save "discoveries" (decisions, patterns, gotchas) for future reference, enhancing long-term learning and consistency.
 *   **Consultation Capability:** Allows quick consultation with individual agents without initiating a full workflow, useful for specific questions or opinions.

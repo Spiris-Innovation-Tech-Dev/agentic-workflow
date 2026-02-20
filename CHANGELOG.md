@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-20
+
+### Added
+- **OpenCode platform support** — fourth AI host alongside Claude Code, GitHub Copilot CLI, and Gemini CLI
+- 11 sub-agents in `.opencode/agents/` with YAML frontmatter (`mode: subagent`, per-agent `tools:` boolean restrictions)
+- 5 slash commands in `.opencode/commands/` (`crew`, `crew-config`, `crew-resume`, `crew-status`, `crew-worktree`) with `$ARGUMENTS` substitution
+- `config/platform-preambles/opencode.md` — tool discipline and git safety rules
+- `config/platform-orchestrators/opencode.md` — `@crew-{agent}` mention-based sub-agent delegation
+- `install-opencode.sh` — builds agents globally/locally, registers MCP server in `opencode.json`
+- `"opencode"` added to `ai_host` enum in MCP tool schemas (`workflow_create_worktree`, `workflow_get_launch_command`)
+- `opencode` launch command: `opencode run "prompt"` for non-interactive execution
+- `.opencode` added to `PLATFORM_DIRS` config cascade
+- OpenCode uses `/crew resume` slash syntax (native Claude command compatibility)
+- `build_opencode()` in `build-agents.py` with `OPENCODE_AGENT_TOOLS` tool restriction map
+- 9 new tests: config path detection (5), worktree settings (1), launch/resume (3)
+
+### Changed
+- `PLATFORMS` registry in `build-agents.py` now includes `"opencode"` (4 platforms total)
+- Documentation updated across README.md, ai-context docs, crew-board docs, copilot-instructions.md, ideas.md
+- `config/workflow-config.yaml` `ai_host` comment updated to include `opencode`
+
 ## [0.5.1] - 2026-02-19
 
 ### Added

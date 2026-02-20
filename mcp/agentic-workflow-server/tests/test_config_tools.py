@@ -135,7 +135,7 @@ class TestEffectiveConfigMultiPlatform:
             assert result["config"]["knowledge_base"] == "docs/claude/"
 
     def test_platform_dirs_constant(self):
-        assert PLATFORM_DIRS == [".claude", ".copilot", ".gemini"]
+        assert PLATFORM_DIRS == [".claude", ".copilot", ".gemini", ".opencode"]
         assert PLATFORM_DIRS[0] == ".claude"  # claude must be first (precedence)
 
 
@@ -198,6 +198,67 @@ class TestGeminiConfigPaths:
             assert result["has_global"] is True
             assert result["config"]["knowledge_base"] == "docs/gemini/"
             assert ".gemini" in result["sources"][0]
+
+
+class TestOpenCodeConfigPaths:
+    """Test that config loads from .opencode/ directories as fallback."""
+
+    def test_global_path_falls_back_to_opencode(self, tmp_path):
+        opencode_dir = tmp_path / ".opencode"
+        opencode_dir.mkdir()
+        (opencode_dir / "workflow-config.yaml").write_text("checkpoints: {}")
+
+        with patch("agentic_workflow_server.config_tools.Path.home", return_value=tmp_path):
+            result = _get_global_config_path()
+            assert ".opencode" in str(result)
+
+    def test_project_path_falls_back_to_opencode(self, tmp_path):
+        opencode_dir = tmp_path / ".opencode"
+        opencode_dir.mkdir()
+        (opencode_dir / "workflow-config.yaml").write_text("checkpoints: {}")
+
+        result = _get_project_config_path(str(tmp_path))
+        assert ".opencode" in str(result)
+
+    def test_claude_preferred_over_opencode(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        opencode_dir = tmp_path / ".opencode"
+        claude_dir.mkdir()
+        opencode_dir.mkdir()
+        (claude_dir / "workflow-config.yaml").write_text("knowledge_base: docs/claude/")
+        (opencode_dir / "workflow-config.yaml").write_text("knowledge_base: docs/opencode/")
+
+        with patch("agentic_workflow_server.config_tools.Path.home", return_value=tmp_path), \
+             patch("agentic_workflow_server.config_tools.Path.cwd", return_value=tmp_path / "nonexistent"):
+            result = config_get_effective()
+            assert result["config"]["knowledge_base"] == "docs/claude/"
+
+    def test_gemini_preferred_over_opencode(self, tmp_path):
+        gemini_dir = tmp_path / ".gemini"
+        opencode_dir = tmp_path / ".opencode"
+        gemini_dir.mkdir()
+        opencode_dir.mkdir()
+        (gemini_dir / "workflow-config.yaml").write_text("knowledge_base: docs/gemini/")
+        (opencode_dir / "workflow-config.yaml").write_text("knowledge_base: docs/opencode/")
+
+        with patch("agentic_workflow_server.config_tools.Path.home", return_value=tmp_path), \
+             patch("agentic_workflow_server.config_tools.Path.cwd", return_value=tmp_path / "nonexistent"):
+            result = config_get_effective()
+            assert result["config"]["knowledge_base"] == "docs/gemini/"
+
+    def test_loads_global_from_opencode(self, tmp_path):
+        opencode_dir = tmp_path / ".opencode"
+        opencode_dir.mkdir()
+        (opencode_dir / "workflow-config.yaml").write_text(
+            "knowledge_base: docs/opencode/\n"
+        )
+
+        with patch("agentic_workflow_server.config_tools.Path.home", return_value=tmp_path), \
+             patch("agentic_workflow_server.config_tools.Path.cwd", return_value=tmp_path / "nonexistent"):
+            result = config_get_effective()
+            assert result["has_global"] is True
+            assert result["config"]["knowledge_base"] == "docs/opencode/"
+            assert ".opencode" in result["sources"][0]
 
 
 class TestWorktreeExtensionConfig:

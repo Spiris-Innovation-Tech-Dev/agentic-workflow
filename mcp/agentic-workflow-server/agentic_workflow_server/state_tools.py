@@ -3814,6 +3814,7 @@ _AI_HOST_CLI = {
     "claude": "claude",
     "gemini": "gemini",
     "copilot": "copilot",
+    "opencode": "opencode",
 }
 
 # Host-specific settings files to copy into worktrees
@@ -3821,6 +3822,7 @@ _HOST_SETTINGS = {
     "claude": [".claude/settings.local.json"],
     "gemini": ["gemini_trust"],
     "copilot": [],
+    "opencode": [],
 }
 
 # Python script to add worktree to Gemini trustedFolders.json
@@ -3966,6 +3968,9 @@ def workflow_get_launch_command(
     elif ai_host == "gemini":
         # gemini -i "prompt" executes prompt then stays interactive
         cli_with_prompt = f"{cli} -i {safe_prompt}"
+    elif ai_host == "opencode":
+        # opencode run "prompt" runs prompt non-interactively
+        cli_with_prompt = f"{cli} run {safe_prompt}"
     else:
         # claude "prompt" starts interactive with the prompt as the first message
         cli_with_prompt = f"{cli} {safe_prompt}"

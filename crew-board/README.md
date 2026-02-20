@@ -127,7 +127,7 @@ When in document list (`d`):
 ### `F4` — New Worktree
 Opens a multi-step wizard (only on repo rows):
 1. **Task description** — free text input
-2. **AI host** — Claude Code, GitHub Copilot, or Gemini CLI
+2. **AI host** — Claude Code, GitHub Copilot, Gemini CLI, or OpenCode
 3. **Settings** — toggle pull latest / launch terminal after creation
 4. **Execution** — background thread runs git operations with spinner
 5. **Result** — shows task ID, branch, directory, color scheme
@@ -137,7 +137,7 @@ Creates a worktree at `../{repo}-worktrees/TASK_XXX` with branch `crew/{slugifie
 ### `F2` — Launch
 Opens a two-step popup:
 1. Select terminal environment (auto-detected: WSL tab, tmux, macOS, Linux)
-2. Select AI host (Claude Code, GitHub Copilot, Gemini CLI)
+2. Select AI host (Claude Code, GitHub Copilot, Gemini CLI, OpenCode)
 
 Launches in the task's worktree directory if one exists, otherwise the repo root. Supports color-themed tabs via `--tabColor`/`--colorScheme` (Windows Terminal) or `window-style` (tmux).
 

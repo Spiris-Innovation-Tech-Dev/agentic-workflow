@@ -6,7 +6,7 @@
 
 A multi-agent development workflow that orchestrates specialized AI agents through planning, implementation, and documentation phases.
 
-**Supports Claude Code, GitHub Copilot CLI, and Gemini CLI.**
+**Supports Claude Code, GitHub Copilot CLI, Gemini CLI, and OpenCode.**
 
 > **New here?** Check out the [Visual Overview](docs/overview.md) -- a jargon-free guide with diagrams, perfect for managers, team leads, and anyone curious about how it works.
 
@@ -103,12 +103,13 @@ Existing config files are backed up with a timestamp.
 
 ### Build Script (Advanced)
 
-The `scripts/build-agents.py` script transforms shared agent sources (`agents/*.md`) into platform-specific formats. Some agents are "command agents" (like `crew-worktree`) — on Claude these become slash commands (`commands/`), on Copilot/Gemini they become regular agents with full tool access.
+The `scripts/build-agents.py` script transforms shared agent sources (`agents/*.md`) into platform-specific formats. Some agents are "command agents" (like `crew-worktree`) — on Claude/OpenCode these become slash commands (`commands/`), on Copilot/Gemini they become regular agents with full tool access.
 
 ```bash
 python3 scripts/build-agents.py claude                    # Build agents/ + commands/ to ~/.claude/
 python3 scripts/build-agents.py copilot                   # Build .github/agents/
 python3 scripts/build-agents.py gemini                    # Build ~/.gemini/agents/
+python3 scripts/build-agents.py opencode                  # Build ~/.opencode/agents/ + commands/
 python3 scripts/build-agents.py copilot --output /path    # Custom output directory
 python3 scripts/build-agents.py --list-platforms           # Show available platforms
 ```
@@ -427,16 +428,16 @@ What are the trade-offs for future multi-provider support?
 Configuration uses a cascade system where each level overrides the previous:
 
 ```
-~/.claude/ or ~/.copilot/ or ~/.gemini/workflow-config.yaml   ← Global defaults
+~/.claude/ or ~/.copilot/ or ~/.gemini/ or ~/.opencode/workflow-config.yaml   ← Global defaults
        ↓
-<repo>/.claude/ or .copilot/ or .gemini/workflow-config.yaml  ← Project overrides
+<repo>/.claude/ or .copilot/ or .gemini/ or .opencode/workflow-config.yaml  ← Project overrides
        ↓
-.tasks/TASK_XXX/config.yaml                                    ← Task-specific
+.tasks/TASK_XXX/config.yaml                                                  ← Task-specific
        ↓
-Command-line args                                              ← Highest priority
+Command-line args                                                            ← Highest priority
 ```
 
-Platform directories are checked in order: `.claude` → `.copilot` → `.gemini`, using whichever exists first.
+Platform directories are checked in order: `.claude` → `.copilot` → `.gemini` → `.opencode`, using whichever exists first.
 
 ### Configuration Reference
 
@@ -994,22 +995,22 @@ All uninstallers preserve task state in `.tasks/`.
 
 ### Feature Comparison
 
-| Feature | Claude Code | Copilot CLI | Gemini CLI |
-|---------|:-----------:|:-----------:|:----------:|
-| **Agents** | All 12 | All 12 | All 12 |
-| **MCP Tools** | 56 tools | 56 tools | 56 tools |
-| **State Management** | `.tasks/` | `.tasks/` | `.tasks/` |
-| **Config Cascade** | Global → Project → Task | Global → Project → Task | Global → Project → Task |
-| **Workflow Modes** | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto |
-| **Cost Tracking** | Per-agent breakdown | Per-agent breakdown | Per-agent breakdown |
-| **Memory/Discoveries** | Persistent | Persistent | Persistent |
-| **Orchestration** | `/crew` command (automated) | `/agent crew-orchestrator` (sub-agent chaining) | Autonomous routing (description-based) |
-| **Worktree Support** | `/crew-worktree` (command) | `@crew-worktree` (agent) | `@crew-worktree` (agent) |
-| **Slash Commands** | `/crew`, `/crew-ask`, etc. | `/agent` only | Custom commands (`.toml`) |
-| **Hook Enforcement** | PreToolUse, Stop hooks | Not available | Not available |
-| **Agent Teams** | Experimental parallel agents | Not available | Not available |
-| **Effort Levels** | API parameter (`output_config`) | Informational only | Informational only |
-| **Compaction** | Server-side auto-compaction | Not available | Not available |
+| Feature | Claude Code | Copilot CLI | Gemini CLI | OpenCode |
+|---------|:-----------:|:-----------:|:----------:|:--------:|
+| **Agents** | All 12 | All 12 | All 12 | All 12 |
+| **MCP Tools** | 56 tools | 56 tools | 56 tools | 56 tools |
+| **State Management** | `.tasks/` | `.tasks/` | `.tasks/` | `.tasks/` |
+| **Config Cascade** | Global → Project → Task | Global → Project → Task | Global → Project → Task | Global → Project → Task |
+| **Workflow Modes** | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto | full/turbo/fast/minimal/auto |
+| **Cost Tracking** | Per-agent breakdown | Per-agent breakdown | Per-agent breakdown | Per-agent breakdown |
+| **Memory/Discoveries** | Persistent | Persistent | Persistent | Persistent |
+| **Orchestration** | `/crew` command (automated) | `/agent crew-orchestrator` (sub-agent chaining) | Autonomous routing (description-based) | `@crew` agent (@mention delegation) |
+| **Worktree Support** | `/crew-worktree` (command) | `@crew-worktree` (agent) | `@crew-worktree` (agent) | `/crew-worktree` (command) |
+| **Slash Commands** | `/crew`, `/crew-ask`, etc. | `/agent` only | Custom commands (`.toml`) | `/crew`, custom commands |
+| **Hook Enforcement** | PreToolUse, Stop hooks | Not available | Not available | Not available |
+| **Agent Teams** | Experimental parallel agents | Not available | Not available | Not available |
+| **Effort Levels** | API parameter (`output_config`) | Informational only | Informational only | Informational only |
+| **Compaction** | Server-side auto-compaction | Not available | Not available | Not available |
 
 ### Platform Details
 
@@ -1037,6 +1038,17 @@ All uninstallers preserve task state in `.tasks/`.
 - Worktrees: `@crew-worktree "task description"` (generated as agent with shell + file tools)
 - MCP server configured in `~/.gemini/settings.json`
 - Instructions in `GEMINI.md`
+- No hook enforcement
+
+#### OpenCode
+- Agents installed to `.opencode/agents/` as `.md` files with YAML frontmatter
+- Commands installed to `.opencode/commands/` for slash command support
+- Sub-agents use `mode: subagent` frontmatter with per-agent tool restrictions (boolean tool maps)
+- Orchestrator uses `@crew-{agent}` mention syntax for delegation
+- Reads `CLAUDE.md` and `AGENTS.md` natively for project instructions
+- Worktrees: `/crew-worktree "task description"` (command with `subtask: true`)
+- MCP server registered in `opencode.json` (project-level)
+- Multi-model support (75+ models including Claude, GPT, Gemini, local)
 - No hook enforcement
 
 ### What's Shared Across All Platforms

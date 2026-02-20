@@ -107,12 +107,12 @@ All workflow state is stored in `.tasks/TASK_XXX/`:
 ## Configuration
 
 Configuration cascade (each level overrides previous):
-1. Global: `~/.claude/` or `~/.copilot/` or `~/.gemini/workflow-config.yaml`
-2. Project: `.claude/` or `.copilot/` or `.gemini/workflow-config.yaml`
+1. Global: `~/.claude/` or `~/.copilot/` or `~/.gemini/` or `~/.opencode/workflow-config.yaml`
+2. Project: `.claude/` or `.copilot/` or `.gemini/` or `.opencode/workflow-config.yaml`
 3. Task: `.tasks/TASK_XXX/config.yaml`
 4. Runtime: Parameters passed to MCP tools
 
-The system checks `.claude/` first, then `.copilot/`, then `.gemini/`, using whichever exists.
+The system checks `.claude/` first, then `.copilot/`, then `.gemini/`, then `.opencode/`, using whichever exists.
 
 ## Best Practices
 
