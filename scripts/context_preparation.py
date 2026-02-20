@@ -2,6 +2,11 @@
 """
 Context Preparation for Agentic Workflow
 
+Note: This module is primarily used for Gemini-based context analysis
+(gemini_research feature). It uses repomix for codebase indexing and
+Gemini CLI for analysis. The file search fallback (ag/grep/Python) is
+used for keyword-based file discovery across all platforms.
+
 Handles Gemini + Repomix integration for large-context codebase analysis.
 This script prepares context for agents by:
 1. Checking prerequisites (repomix, gemini CLI)
@@ -198,7 +203,7 @@ Note documentation needs:
         return keywords[:10]  # Limit to top 10
 
     def _search_files(self, keyword: str) -> list[str]:
-        """Search for files containing keyword using ag or grep."""
+        """Search for files containing keyword using ag, grep, or Python fallback."""
         try:
             # Try ag (silver searcher) first
             result = subprocess.run(
@@ -226,7 +231,35 @@ Note documentation needs:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
-        return []
+        # Python-native fallback (works on all platforms including Windows)
+        return self._search_files_python(keyword)
+
+    def _search_files_python(self, keyword: str) -> list[str]:
+        """Pure-Python file search fallback for Windows/environments without ag/grep."""
+        matches = []
+        extensions = {".py", ".ts", ".js", ".go", ".rs", ".java", ".rb", ".md"}
+        skip_dirs = {
+            "node_modules", "dist", ".git", "__pycache__", ".venv", "venv",
+            ".next", "target", "build", "out", "coverage", ".cache",
+            ".tox", ".mypy_cache",
+        }
+        pattern = re.compile(re.escape(keyword))
+        for root, dirs, files in os.walk("."):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fname in files:
+                if len(matches) >= 20:
+                    return matches
+                _, ext = os.path.splitext(fname)
+                if ext not in extensions:
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", errors="ignore") as f:
+                        if pattern.search(f.read()):
+                            matches.append(fpath)
+                except (OSError, PermissionError):
+                    pass
+        return matches
 
     def _find_base_classes(self, file_path: str) -> list[str]:
         """Find base classes/interfaces imported by a file."""

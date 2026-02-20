@@ -32,7 +32,11 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
 
 ### Steps
 
-1. **Read config + resolve prompts**: Call `config_get_effective()` → `worktree` section.
+1. **Read config + resolve prompts**: Call `config_get_effective()` MCP tool to get the `worktree` section. If MCP tools are unavailable (e.g., OpenCode subtasks), read the config by running:
+   ```
+   python3 scripts/crew_orchestrator.py config
+   ```
+   and parse the JSON output for the `worktree` section.
    For each prompt-mode setting (`sync_before_create`, `recycle`, `auto_launch`):
    - If value is `prompt` → ask the user (yes/no) → build the corresponding CLI flag (`--pull`/`--no-pull`, `--recycle`/`--no-recycle`, `--launch`/`--no-launch`)
    - If value is `auto` or `never` → the script handles it, no flag needed
@@ -65,6 +69,8 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
    4. If both `auto_assign == "never"` and `transitions.on_create.to` is empty → skip this step entirely
    5. If any Jira operation fails (MCP server unavailable, auth error, etc.), print a warning and continue — Jira integration is non-blocking
 
+   **Note:** Jira MCP tools (`jira_users_current`, `jira_issues_assign`, `jira_transitions_list`, `jira_issues_transition`, `jira_issues_get`) require MCP server access. If MCP tools are unavailable (e.g., on OpenCode subtasks), skip Jira operations and print: "Jira integration skipped (MCP tools unavailable). Transition/assign manually if needed."
+
 6. **Print formatted result**: Display the result from the JSON output:
 
 ```
@@ -90,11 +96,9 @@ Then start your AI assistant (claude / gemini / copilot) and give it this prompt
 
 If `launch.launched` is true, skip the manual instructions — the session was already launched.
 
-   **Detect terminal environment** (run bash checks in order):
-   1. `echo $TMUX` — non-empty → `tmux`
-   2. `which wt.exe 2>/dev/null` — found → `windows_terminal`
-   3. `uname -s` = "Darwin" → `macos`
-   4. Otherwise → `linux_generic`
+   **Detect terminal environment** (cross-platform — use Python or `setup-worktree.py --json`):
+   - The `setup-worktree.py --json` output includes `launch.terminal_env` — use that value directly.
+   - If detecting manually: check `$TMUX` env var → `tmux`; on WSL check for `wt.exe` on PATH → `windows_terminal`; `platform.system() == "Darwin"` → `macos`; `platform.system() == "Windows"` (non-WSL) → `windows_native`; otherwise → `linux_generic`.
 
    **Use AI host** from step 6 (`<ai_host>`).
 
@@ -105,7 +109,7 @@ If `launch.launched` is true, skip the manual instructions — the session was a
 
    **Get main repo path**: Run `pwd`
 
-   **Call**: `workflow_get_launch_command(task_id, terminal_env, ai_host, main_repo_path, launch_mode)`
+   **Call**: `workflow_get_launch_command(task_id, terminal_env, ai_host, main_repo_path, launch_mode)` MCP tool. If MCP tools are unavailable, the launch commands are already included in the `setup-worktree.py --json` output under `launch.commands` — use those directly.
 
    **Execute** the returned `launch_commands` via bash.
 

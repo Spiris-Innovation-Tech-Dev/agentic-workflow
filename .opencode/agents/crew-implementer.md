@@ -1,6 +1,22 @@
 ---
 description: "Implementer — executes plans step-by-step"
 mode: subagent
+permission:
+  bash:
+    "*": ask
+    "git status*": allow
+    "git diff*": allow
+    "git log*": allow
+    "git add *": allow
+    "python3 -m pytest*": allow
+    "npm test*": allow
+    "npm run*": allow
+    "make *": allow
+    "git commit*": ask
+    "git push*": deny
+    "git reset --hard*": deny
+    "git clean*": deny
+    "rm -rf*": deny
 ---
 
 ## Tool Discipline

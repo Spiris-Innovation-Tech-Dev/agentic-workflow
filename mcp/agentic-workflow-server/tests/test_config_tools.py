@@ -135,7 +135,7 @@ class TestEffectiveConfigMultiPlatform:
             assert result["config"]["knowledge_base"] == "docs/claude/"
 
     def test_platform_dirs_constant(self):
-        assert PLATFORM_DIRS == [".claude", ".copilot", ".gemini", ".opencode"]
+        assert PLATFORM_DIRS == [".claude", ".copilot", ".gemini", ".config/opencode", ".opencode"]
         assert PLATFORM_DIRS[0] == ".claude"  # claude must be first (precedence)
 
 

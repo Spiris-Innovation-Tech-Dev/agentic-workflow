@@ -40,7 +40,7 @@ if command -v gemini &> /dev/null; then
     echo "  ✓ Gemini CLI found"
 else
     echo "  ⚠ Gemini CLI not found"
-    echo "    Install with: npm install -g @anthropic-ai/gemini-cli"
+    echo "    Install: see https://github.com/google-gemini/gemini-cli"
     echo "    See: https://github.com/google-gemini/gemini-cli"
 fi
 echo ""
@@ -82,11 +82,14 @@ if [ -d "$MCP_SERVER_DIR" ]; then
 
   if [ -n "$PIP_CMD" ]; then
     echo "  Installing Python package..."
-    $PIP_CMD install -q -e "$MCP_SERVER_DIR" 2>/dev/null || {
+    MCP_INSTALL_OK=false
+    $PIP_CMD install -q -e "$MCP_SERVER_DIR" 2>/dev/null && MCP_INSTALL_OK=true || {
       echo "  ⚠ Failed to install MCP server package"
       echo "    Try manually: $PIP_CMD install -e $MCP_SERVER_DIR"
     }
-    echo "  ✓ MCP server package installed"
+    if [ "$MCP_INSTALL_OK" = "true" ]; then
+      echo "  ✓ MCP server package installed"
+    fi
   fi
 else
   echo "  ⚠ MCP server directory not found: $MCP_SERVER_DIR"
@@ -127,6 +130,54 @@ settings["mcpServers"]["agentic-workflow"] = {
     "args": ["-m", "agentic_workflow_server.server"]
 }
 
+# Configure per-agent thinkingConfig via modelConfigs overrides
+# High budget for complex reasoning agents, lower for utility agents
+AGENT_THINKING_BUDGETS = {
+    # Complex reasoning agents — high thinking budget
+    "crew-architect":           24576,
+    "crew-developer":           16384,
+    "crew-reviewer":            16384,
+    "crew-skeptic":             24576,
+    "crew-implementer":         16384,
+    "crew-feedback":            16384,
+    "crew-security-auditor":    24576,
+    "crew-performance-analyst": 16384,
+    "crew-api-guardian":        16384,
+    # Utility agents — lower thinking budget
+    "crew-technical-writer":       8192,
+    "crew-accessibility-reviewer": 8192,
+    "crew-orchestrator":          16384,
+    "crew-worktree":               4096,
+    "crew-status":                 4096,
+}
+
+if "modelConfigs" not in settings:
+    settings["modelConfigs"] = {}
+if "overrides" not in settings["modelConfigs"]:
+    settings["modelConfigs"]["overrides"] = []
+
+# Remove any existing crew-* overrides to avoid duplicates on re-install
+existing = settings["modelConfigs"]["overrides"]
+settings["modelConfigs"]["overrides"] = [
+    o for o in existing
+    if not (o.get("match", {}).get("overrideScope", "").startswith("crew-"))
+]
+
+# Add crew agent overrides
+for agent_name, budget in AGENT_THINKING_BUDGETS.items():
+    settings["modelConfigs"]["overrides"].append({
+        "match": {
+            "overrideScope": agent_name
+        },
+        "modelConfig": {
+            "generateContentConfig": {
+                "thinkingConfig": {
+                    "thinkingBudget": budget
+                }
+            }
+        }
+    })
+
 # Write back
 with open(settings_file, 'w') as f:
     json.dump(settings, f, indent=2)
@@ -134,6 +185,7 @@ with open(settings_file, 'w') as f:
 
 print("  ✓ Experimental agents enabled")
 print("  ✓ MCP server registered: agentic-workflow")
+print(f"  ✓ thinkingConfig overrides for {len(AGENT_THINKING_BUDGETS)} agents")
 PYTHON_SCRIPT
 
 echo ""

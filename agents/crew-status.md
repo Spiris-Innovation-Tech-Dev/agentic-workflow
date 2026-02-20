@@ -158,6 +158,8 @@ Linked Tasks: TASK_039 (builds_on), TASK_040 (related)
 
 **FORBIDDEN tools** (do NOT call these): `workflow_transition`, `workflow_complete_phase`, `workflow_can_transition`, `workflow_can_stop`, `workflow_is_complete`, `workflow_add_review_issue`, `workflow_cleanup_worktree`, or any tool that modifies state.
 
+**MCP unavailable fallback:** If MCP tools are not available (e.g., OpenCode subtasks), read `.tasks/*/state.json` files directly for all status information. Skip the MCP-only sections (Context Usage, Model Health) and note they are unavailable.
+
 When invoked:
 
 1. **List Tasks** — Read `.tasks/` directory contents and each `state.json`

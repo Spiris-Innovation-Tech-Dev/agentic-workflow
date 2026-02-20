@@ -27,20 +27,22 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
-def find_repo_root() -> Path:
-    """Walk up from CWD looking for a directory with .git/ as a directory (main repo)."""
-    current = Path.cwd().resolve()
-    while True:
-        git_path = current / ".git"
-        if git_path.is_dir():
-            return current
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    print("Error: Could not find repo root (no .git/ directory found).", file=sys.stderr)
-    sys.exit(1)
+try:
+    from shared_utils import find_repo_root
+except ImportError:
+    def find_repo_root() -> Path:
+        """Walk up from CWD looking for a directory with .git/ as a directory (main repo)."""
+        current = Path.cwd().resolve()
+        while True:
+            git_path = current / ".git"
+            if git_path.is_dir():
+                return current
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        print("Error: Could not find repo root (no .git/ directory found).", file=sys.stderr)
+        sys.exit(1)
 
 
 def check_not_in_worktree():
@@ -79,6 +81,30 @@ def run_git(args: list[str], dry_run: bool) -> bool:
         return True
     print(f"  Running: {cmd_str}")
     result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  Warning: Command failed: {result.stderr.strip()}", file=sys.stderr)
+        return False
+    if result.stdout.strip():
+        print(f"  {result.stdout.strip()}")
+    return True
+
+
+def run_git_wsl(args: list[str], dry_run: bool, wsl_use_native: bool = False,
+                main_repo_abs: str = "") -> bool:
+    """Run a git command, optionally via PowerShell on WSL with /mnt/ paths."""
+    cmd_str = " ".join(args)
+    if dry_run:
+        print(f"  [dry-run] Would run: {cmd_str}")
+        return True
+    if wsl_use_native and main_repo_abs:
+        result = subprocess.run(["wslpath", "-w", main_repo_abs], capture_output=True, text=True)
+        win_cwd = result.stdout.strip() if result.returncode == 0 else main_repo_abs
+        ps_cmd = f"powershell.exe -Command \"cd '{win_cwd}'; {cmd_str}\""
+        print(f"  Running (via PowerShell): {cmd_str}")
+        result = subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
+    else:
+        print(f"  Running: {cmd_str}")
+        result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"  Warning: Command failed: {result.stderr.strip()}", file=sys.stderr)
         return False
@@ -130,6 +156,20 @@ def main():
     # Resolve worktree path relative to repo root
     worktree_abs = os.path.normpath(os.path.join(str(repo_root), worktree_path))
 
+    # Detect WSL + NTFS path for native PowerShell passthrough
+    wsl_use_native = False
+    try:
+        from shared_utils import is_wsl
+    except ImportError:
+        def is_wsl():
+            try:
+                with open("/proc/version") as f:
+                    return "microsoft" in f.read().lower()
+            except OSError:
+                return False
+    if is_wsl() and worktree_abs.startswith("/mnt/"):
+        wsl_use_native = True
+
     print(f"Cleaning up worktree for {args.task_id}:")
     print(f"  Path:   {worktree_path}")
     print(f"  Branch: {branch_name}")
@@ -141,19 +181,22 @@ def main():
     if args.keep_on_disk:
         # Mark as recyclable — skip git worktree remove
         if args.remove_branch and branch_name:
-            run_git(["git", "branch", "-d", branch_name], args.dry_run)
+            run_git_wsl(["git", "branch", "-d", branch_name], args.dry_run,
+                        wsl_use_native=wsl_use_native, main_repo_abs=str(repo_root))
 
         new_status = "recyclable"
     else:
         # Remove worktree from disk
-        ok = run_git(["git", "worktree", "remove", worktree_abs], args.dry_run)
+        ok = run_git_wsl(["git", "worktree", "remove", worktree_abs], args.dry_run,
+                         wsl_use_native=wsl_use_native, main_repo_abs=str(repo_root))
         if not ok and not args.dry_run:
             print("\nError: git worktree remove failed. State NOT updated.", file=sys.stderr)
             sys.exit(1)
 
         if args.remove_branch and branch_name:
             # Branch deletion failure is a warning, not fatal
-            run_git(["git", "branch", "-d", branch_name], args.dry_run)
+            run_git_wsl(["git", "branch", "-d", branch_name], args.dry_run,
+                        wsl_use_native=wsl_use_native, main_repo_abs=str(repo_root))
 
         new_status = "cleaned"
 

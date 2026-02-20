@@ -65,6 +65,8 @@ cp "$SCRIPT_DIR/commands/"*.md "$CLAUDE_DIR/commands/"
 echo "  ✓ crew.md"
 echo "  ✓ crew-config.md"
 echo "  ✓ crew-resume.md"
+echo "  ✓ crew-checkpoint.md"
+echo "  ✓ crew-cost-report.md"
 
 # Build agents using multi-platform build script
 echo ""
@@ -81,6 +83,7 @@ cp "$SCRIPT_DIR/scripts/"*.py "$CLAUDE_DIR/scripts/"
 chmod +x "$CLAUDE_DIR/scripts/"*.py
 echo "  ✓ workflow_state.py (state management)"
 echo "  ✓ validate-transition.py (PreToolUse hook)"
+echo "  ✓ check-bash-safety.py (Bash safety hook)"
 echo "  ✓ check-workflow-complete.py (Stop hook)"
 
 # Copy config (backup existing if present)
@@ -160,13 +163,16 @@ if [ -d "$MCP_SERVER_DIR" ]; then
   if [ -n "$PIP_CMD" ]; then
     # Install in editable mode for development
     echo "  Installing Python package..."
-    $PIP_CMD install -q -e "$MCP_SERVER_DIR" 2>/dev/null || {
+    MCP_INSTALL_OK=false
+    $PIP_CMD install -q -e "$MCP_SERVER_DIR" 2>/dev/null && MCP_INSTALL_OK=true || {
       echo "  ⚠ Failed to install MCP server package"
       echo "    Try manually: $PIP_CMD install -e $MCP_SERVER_DIR"
     }
 
-    # Register MCP server with Claude if claude CLI is available
-    if command -v claude &> /dev/null; then
+    # Register MCP server with Claude only if package installed successfully
+    if [ "$MCP_INSTALL_OK" != "true" ]; then
+      echo "  ⚠ Skipping MCP registration (package not installed)"
+    elif command -v claude &> /dev/null; then
       echo "  Registering MCP server with Claude..."
       # Remove existing registration if present
       claude mcp remove agentic-workflow 2>/dev/null || true
@@ -219,6 +225,15 @@ hooks_template = {
                     {
                         "type": "command",
                         "command": "python3 ~/.claude/scripts/validate-transition.py"
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python3 ~/.claude/scripts/check-bash-safety.py"
                     }
                 ]
             }
@@ -303,10 +318,11 @@ except (FileNotFoundError, json.JSONDecodeError) as e:
 
 try:
     with open(wt_settings_file) as f:
-        # Strip JSON comments (// style) that WT settings may contain
-        lines = f.readlines()
-        clean_lines = [l for l in lines if not l.strip().startswith("//")]
-        settings = json.loads("".join(clean_lines))
+        raw_content = f.read()
+    # Strip JSON comments (// style) for parsing only
+    import re
+    clean_content = re.sub(r'^\s*//.*$', '', raw_content, flags=re.MULTILINE)
+    settings = json.loads(clean_content)
 except (FileNotFoundError, json.JSONDecodeError) as e:
     print(f"  ⚠ Could not read WT settings.json: {e}")
     sys.exit(0)
@@ -315,17 +331,33 @@ if "schemes" not in settings:
     settings["schemes"] = []
 
 existing_names = {s.get("name") for s in settings["schemes"]}
-added = 0
-for scheme in crew_schemes:
-    if scheme["name"] not in existing_names:
-        settings["schemes"].append(scheme)
-        added += 1
+new_schemes = [s for s in crew_schemes if s["name"] not in existing_names]
 
-if added > 0:
+if new_schemes:
+    # Inject schemes into the raw file content to preserve comments.
+    # Find the "schemes" array and append before its closing bracket.
+    schemes_json = ",\n".join(json.dumps(s, indent=4) for s in new_schemes)
+    # Try to find existing schemes array closing bracket
+    schemes_match = re.search(r'("schemes"\s*:\s*\[)(.*?)(\])', raw_content, re.DOTALL)
+    if schemes_match:
+        inner = schemes_match.group(2).rstrip()
+        separator = ",\n        " if inner.strip() else "\n        "
+        new_content = (
+            raw_content[:schemes_match.end(2)]
+            + separator + schemes_json + "\n    "
+            + raw_content[schemes_match.start(3):]
+        )
+    else:
+        # No schemes array found — fall back to full rewrite (loses comments)
+        settings["schemes"].extend(new_schemes)
+        new_content = json.dumps(settings, indent=4) + "\n"
+    # Backup before writing
+    import shutil
+    shutil.copy2(wt_settings_file, wt_settings_file + ".bak")
     with open(wt_settings_file, "w") as f:
-        json.dump(settings, f, indent=4)
-        f.write("\n")
-    print(f"  ✓ Added {added} Crew color schemes to Windows Terminal")
+        f.write(new_content)
+    print(f"  ✓ Added {len(new_schemes)} Crew color schemes to Windows Terminal")
+    print(f"  ✓ Backup saved to settings.json.bak")
 else:
     print("  ✓ Crew color schemes already present in Windows Terminal")
 PYEOF
@@ -343,8 +375,9 @@ echo "========================================"
 echo ""
 echo "Enforced workflow now active with:"
 echo "  • MCP server: Structured state & config tools"
-echo "  • PreToolUse hook: Validates agent transitions"
-echo "  • Stop hook: Ensures Technical Writer runs"
+echo "  • PreToolUse hook (Task): Validates agent transitions"
+echo "  • PreToolUse hook (Bash): Warns about unsafe git commands"
+echo "  • Stop hook: Ensures workflow completes + session-close reminders"
 echo ""
 echo "MCP Tools available:"
 echo "  Core:"

@@ -10,8 +10,12 @@ import pytest
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import tempfile
+
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import agentic_workflow_server.state_tools as _state_mod
 
 from agentic_workflow_server.state_tools import (
     # Core workflow
@@ -148,6 +152,27 @@ def clean_tasks_dir():
 
     if performance_file.exists():
         performance_file.unlink()
+
+
+@pytest.fixture
+def isolated_tasks_dir():
+    """Provide a completely isolated temp .tasks/ directory.
+
+    Redirects ``_cached_tasks_dir`` so that ``get_tasks_dir()`` returns
+    a fresh temp directory containing no real tasks.  This prevents
+    in-progress tasks like TASK_016 from leaking into tests that scan
+    all task directories (e.g. ``_find_active_task_dir``).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_tasks = Path(tmpdir) / ".tasks"
+        tmp_tasks.mkdir()
+
+        old = _state_mod._cached_tasks_dir
+        _state_mod._cached_tasks_dir = tmp_tasks
+        try:
+            yield tmp_tasks
+        finally:
+            _state_mod._cached_tasks_dir = old
 
 
 class TestWorkflowInitialization:
@@ -698,41 +723,42 @@ class TestCompletionConsistency:
 
 class TestFindActiveTaskIsolation:
     """Test that _find_active_task_dir skips completed and worktree-active tasks,
-    never modifying their state."""
+    never modifying their state.
 
-    def test_skips_completed_task(self, clean_tasks_dir):
+    Uses ``isolated_tasks_dir`` so real tasks (e.g. TASK_016 in a worktree)
+    don't leak into the scan and cause false failures.
+    """
+
+    def test_skips_completed_task(self, isolated_tasks_dir):
         """A task with status=completed is never returned as the active task."""
         workflow_initialize(task_id="TASK_TEST_ISO_001")
-        # Mark completed without finishing all phases
-        task_dir = clean_tasks_dir / "TASK_TEST_ISO_001"
+        task_dir = isolated_tasks_dir / "TASK_TEST_ISO_001"
         state = _load_state(task_dir)
         state["status"] = "completed"
         _save_state(task_dir, state)
 
         result = _find_active_task_dir()
-        # Should not return the completed task
-        assert result is None or result.name != "TASK_TEST_ISO_001"
+        assert result is None
 
-    def test_skips_worktree_active_task(self, clean_tasks_dir):
+    def test_skips_worktree_active_task(self, isolated_tasks_dir):
         """A task with worktree.status=active is skipped (worked on elsewhere)."""
         workflow_initialize(task_id="TASK_TEST_ISO_002")
-        task_dir = clean_tasks_dir / "TASK_TEST_ISO_002"
+        task_dir = isolated_tasks_dir / "TASK_TEST_ISO_002"
         state = _load_state(task_dir)
         state["worktree"] = {"status": "active", "path": "/tmp/fake-worktree"}
         _save_state(task_dir, state)
 
         result = _find_active_task_dir()
-        assert result is None or result.name != "TASK_TEST_ISO_002"
+        assert result is None
 
-    def test_completed_task_state_not_modified(self, clean_tasks_dir):
+    def test_completed_task_state_not_modified(self, isolated_tasks_dir):
         """Calling _find_active_task_dir does not mutate completed task state."""
         workflow_initialize(task_id="TASK_TEST_ISO_003")
-        task_dir = clean_tasks_dir / "TASK_TEST_ISO_003"
+        task_dir = isolated_tasks_dir / "TASK_TEST_ISO_003"
         state = _load_state(task_dir)
         state["status"] = "completed"
         _save_state(task_dir, state)
 
-        # Snapshot the state file content
         state_file = task_dir / "state.json"
         before = state_file.read_text()
 
@@ -741,10 +767,10 @@ class TestFindActiveTaskIsolation:
         after = state_file.read_text()
         assert before == after, "completed task state.json was modified by _find_active_task_dir"
 
-    def test_worktree_active_task_state_not_modified(self, clean_tasks_dir):
+    def test_worktree_active_task_state_not_modified(self, isolated_tasks_dir):
         """Calling _find_active_task_dir does not mutate worktree-active task state."""
         workflow_initialize(task_id="TASK_TEST_ISO_004")
-        task_dir = clean_tasks_dir / "TASK_TEST_ISO_004"
+        task_dir = isolated_tasks_dir / "TASK_TEST_ISO_004"
         state = _load_state(task_dir)
         state["worktree"] = {"status": "active", "path": "/tmp/fake-worktree"}
         _save_state(task_dir, state)
@@ -757,11 +783,11 @@ class TestFindActiveTaskIsolation:
         after = state_file.read_text()
         assert before == after, "worktree-active task state.json was modified by _find_active_task_dir"
 
-    def test_returns_incomplete_task_over_completed(self, clean_tasks_dir):
+    def test_returns_incomplete_task_over_completed(self, isolated_tasks_dir):
         """With one completed and one incomplete task, returns the incomplete one."""
         # Completed task
         workflow_initialize(task_id="TASK_TEST_ISO_005")
-        td1 = clean_tasks_dir / "TASK_TEST_ISO_005"
+        td1 = isolated_tasks_dir / "TASK_TEST_ISO_005"
         s1 = _load_state(td1)
         s1["status"] = "completed"
         _save_state(td1, s1)
@@ -773,21 +799,21 @@ class TestFindActiveTaskIsolation:
         assert result is not None
         assert result.name == "TASK_TEST_ISO_006"
 
-    def test_find_task_dir_none_returns_active_not_completed(self, clean_tasks_dir):
+    def test_find_task_dir_none_returns_active_not_completed(self, isolated_tasks_dir):
         """find_task_dir(None) delegates to _find_active_task_dir and skips completed."""
         workflow_initialize(task_id="TASK_TEST_ISO_007")
-        td = clean_tasks_dir / "TASK_TEST_ISO_007"
+        td = isolated_tasks_dir / "TASK_TEST_ISO_007"
         state = _load_state(td)
         state["status"] = "completed"
         _save_state(td, state)
 
         result = find_task_dir(None)
-        assert result is None or result.name != "TASK_TEST_ISO_007"
+        assert result is None
 
-    def test_find_task_dir_explicit_id_still_works_for_completed(self, clean_tasks_dir):
+    def test_find_task_dir_explicit_id_still_works_for_completed(self, isolated_tasks_dir):
         """find_task_dir with explicit ID returns it even if completed (intentional lookup)."""
         workflow_initialize(task_id="TASK_TEST_ISO_008")
-        td = clean_tasks_dir / "TASK_TEST_ISO_008"
+        td = isolated_tasks_dir / "TASK_TEST_ISO_008"
         state = _load_state(td)
         state["status"] = "completed"
         _save_state(td, state)
@@ -796,58 +822,47 @@ class TestFindActiveTaskIsolation:
         assert result is not None
         assert result.name == "TASK_TEST_ISO_008"
 
-    def test_active_task_file_preferred_over_scan(self, clean_tasks_dir):
+    def test_active_task_file_preferred_over_scan(self, isolated_tasks_dir):
         """When .active_task points to a valid task, use it instead of scanning."""
-        # Create two incomplete tasks
         workflow_initialize(task_id="TASK_TEST_ISO_009")
         workflow_initialize(task_id="TASK_TEST_ISO_010")
 
-        # .active_task points to the older task
-        active_file = clean_tasks_dir / ".active_task"
+        active_file = isolated_tasks_dir / ".active_task"
         active_file.write_text("TASK_TEST_ISO_009\n")
 
         result = _find_active_task_dir()
         assert result is not None
         assert result.name == "TASK_TEST_ISO_009"
 
-        active_file.unlink()
-
-    def test_stale_active_task_file_ignored(self, clean_tasks_dir):
+    def test_stale_active_task_file_ignored(self, isolated_tasks_dir):
         """A .active_task pointing to a completed task is ignored and cleaned up."""
         workflow_initialize(task_id="TASK_TEST_ISO_011")
-        td = clean_tasks_dir / "TASK_TEST_ISO_011"
+        td = isolated_tasks_dir / "TASK_TEST_ISO_011"
         state = _load_state(td)
         state["status"] = "completed"
         _save_state(td, state)
 
-        # Stale .active_task from crashed session
-        active_file = clean_tasks_dir / ".active_task"
+        active_file = isolated_tasks_dir / ".active_task"
         active_file.write_text("TASK_TEST_ISO_011\n")
 
         result = _find_active_task_dir()
-        # Should NOT return the completed task
-        assert result is None or result.name != "TASK_TEST_ISO_011"
+        assert result is None
 
-    def test_active_task_file_nonexistent_task_ignored(self, clean_tasks_dir):
+    def test_active_task_file_nonexistent_task_ignored(self, isolated_tasks_dir):
         """A .active_task pointing to a nonexistent task dir is ignored."""
-        active_file = clean_tasks_dir / ".active_task"
+        active_file = isolated_tasks_dir / ".active_task"
         active_file.write_text("TASK_DOES_NOT_EXIST\n")
 
         result = _find_active_task_dir()
-        assert result is None or result.name != "TASK_DOES_NOT_EXIST"
+        assert result is None
 
-        active_file.unlink()
-
-    def test_active_task_file_empty_ignored(self, clean_tasks_dir):
+    def test_active_task_file_empty_ignored(self, isolated_tasks_dir):
         """An empty .active_task file is ignored."""
-        active_file = clean_tasks_dir / ".active_task"
+        active_file = isolated_tasks_dir / ".active_task"
         active_file.write_text("\n")
 
         result = _find_active_task_dir()
-        # Should fall back to scan, not crash
-        assert result is None or True  # just verify no exception
-
-        active_file.unlink()
+        assert result is None  # no tasks in isolated dir
 
 
 class TestCostTracking:
@@ -1805,7 +1820,7 @@ class TestAutoLaunch:
             main_repo_path="/home/user/myrepo",
         )
 
-        assert "/crew resume TASK_TEST_AL_OC_002" in result["resume_prompt"]
+        assert "/crew-resume TASK_TEST_AL_OC_002" in result["resume_prompt"]
         assert "@crew-resume" not in result["resume_prompt"]
 
 
@@ -1949,7 +1964,7 @@ class TestBuildResumePrompt:
 
     def test_opencode_uses_slash_syntax(self):
         prompt = _build_resume_prompt("TASK_001", "/repo/.tasks/TASK_001", "opencode")
-        assert "/crew resume TASK_001" in prompt
+        assert "/crew-resume TASK_001" in prompt
         assert "@crew-resume" not in prompt
 
     def test_default_host_is_claude(self):

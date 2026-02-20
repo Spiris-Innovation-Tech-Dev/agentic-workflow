@@ -83,7 +83,9 @@ Run: `python3 scripts/crew_orchestrator.py impl-action --task-id <id> [--verifie
   ```
   python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user response>" --type escalation_response --phase implementer
   ```
-- **complete**: Implementation done, continue to next phase.
+- **complete**: Implementation done, continue to next phase (feedback → technical_writer → complete).
+
+**Note**: After the implementer returns "complete", the action loop continues with `result.next` which will be `spawn_agent` for the remaining phases (feedback and/or technical_writer). The final `action: "complete"` only arrives after ALL phases including technical_writer are done. **Never commit before the technical-writer has run.**
 
 #### action: "complete"
 
@@ -97,7 +99,7 @@ Run: `python3 scripts/crew_orchestrator.py complete --task-id <id> [--files <com
 
 ### Single Agent Consultation
 
-1. Load agent prompt from `~/.claude/agents/<agent>.md`
+1. Load agent prompt from `~/.opencode/agents/<agent>.md`
 2. Gather context: `options.context` (files), `options.diff` (git diff), `options.plan` (plan file), `options.file` (question from file)
 3. Spawn: `Task(subagent_type: "general-purpose", model: options.model or "opus", max_turns: 15, prompt: "<agent prompt + question + context>")`
 4. Return response directly to user (no state saved)
@@ -105,7 +107,7 @@ Run: `python3 scripts/crew_orchestrator.py complete --task-id <id> [--files <com
 ## Agent Prompt Composition
 
 When building prompts for agents, include:
-1. **Agent prompt** from `~/.claude/agents/<agent>.md`
+1. **Agent prompt** from `~/.opencode/agents/<agent>.md`
 2. **Task description** from `.tasks/<task_id>/task.md`
 3. **Previous agent outputs** (context_files from orchestrator response)
 4. **Gemini analysis** (if available, extract relevant section)

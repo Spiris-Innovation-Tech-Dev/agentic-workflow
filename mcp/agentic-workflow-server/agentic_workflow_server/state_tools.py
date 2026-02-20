@@ -28,6 +28,7 @@ PHASE_ORDER = [
     "reviewer",
     "skeptic",
     "implementer",
+    "feedback",
     "technical_writer"
 ]
 
@@ -3875,6 +3876,8 @@ def _build_resume_prompt(task_id: str, main_tasks_path: str, ai_host: str = "cla
     """Build the resume prompt string for a worktree session."""
     if ai_host in ("gemini", "copilot"):
         resume_cmd = f"@crew-resume {task_id}"
+    elif ai_host == "opencode":
+        resume_cmd = f"/crew-resume {task_id}"
     else:
         resume_cmd = f"/crew resume {task_id}"
     return (
@@ -3900,7 +3903,7 @@ def workflow_get_launch_command(
     Args:
         task_id: Task identifier. If not provided, uses active task.
         terminal_env: Terminal environment (tmux, windows_terminal, macos, linux_generic).
-        ai_host: AI host to use (claude, gemini, copilot).
+        ai_host: AI host to use (claude, gemini, copilot, opencode).
         main_repo_path: Absolute path to the main repository. Used to resolve
             the worktree absolute path.
         launch_mode: Terminal launch mode (auto, window, tab). "auto" uses

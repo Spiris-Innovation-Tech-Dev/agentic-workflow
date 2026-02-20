@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,27 +30,37 @@ _MCP_PKG = _REPO_ROOT / "mcp" / "agentic-workflow-server"
 if str(_MCP_PKG) not in sys.path:
     sys.path.insert(0, str(_MCP_PKG))
 
-from agentic_workflow_server.orchestration_tools import (
-    crew_parse_args,
-    crew_init_task,
-    crew_get_next_phase,
-    crew_parse_agent_output,
-    crew_get_implementation_action,
-    crew_format_completion,
-    crew_get_resume_state,
-)
-from agentic_workflow_server.state_tools import (
-    workflow_complete_phase,
-    workflow_add_human_decision,
-    workflow_record_cost,
-    workflow_transition,
-    workflow_log_interaction,
-    find_task_dir,
-    get_tasks_dir,
-    _load_state,
-    _save_state,
-)
-from agentic_workflow_server.config_tools import config_get_effective
+try:
+    from agentic_workflow_server.orchestration_tools import (
+        crew_parse_args,
+        crew_init_task,
+        crew_get_next_phase,
+        crew_parse_agent_output,
+        crew_get_implementation_action,
+        crew_format_completion,
+        crew_get_resume_state,
+    )
+    from agentic_workflow_server.state_tools import (
+        workflow_complete_phase,
+        workflow_add_human_decision,
+        workflow_record_cost,
+        workflow_transition,
+        workflow_log_interaction,
+        find_task_dir,
+        get_tasks_dir,
+        _load_state,
+        _save_state,
+    )
+    from agentic_workflow_server.config_tools import config_get_effective
+except ImportError as e:
+    print(
+        f"Error: Could not import agentic-workflow-server package.\n"
+        f"  Looked in: {_MCP_PKG}\n"
+        f"  Import error: {e}\n"
+        f"  Fix: Run 'pip install -e {_MCP_PKG}' or ensure the package is installed.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 ACTIVE_TASK_FILE = ".active_task"
@@ -59,33 +70,63 @@ def _write_active_task(task_id: str) -> None:
     """Write the active task ID to .tasks/.active_task for session isolation.
 
     Uses FileLock to prevent race conditions between concurrent sessions.
+    Falls back to atomic write (temp file + os.replace) if filelock is not installed.
     """
-    from filelock import FileLock
-
     tasks_dir = get_tasks_dir()
     tasks_dir.mkdir(parents=True, exist_ok=True)
     active_file = tasks_dir / ACTIVE_TASK_FILE
     lock_file = tasks_dir / f"{ACTIVE_TASK_FILE}.lock"
-    with FileLock(str(lock_file)):
-        active_file.write_text(task_id + "\n")
+    try:
+        from filelock import FileLock
+        with FileLock(str(lock_file)):
+            active_file.write_text(task_id + "\n")
+    except ImportError:
+        import logging
+        logging.warning(
+            "filelock not installed — concurrent session safety disabled. "
+            "Install with: pip install filelock"
+        )
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(tasks_dir), prefix=".active_task.tmp."
+        )
+        closed = False
+        try:
+            os.write(fd, (task_id + "\n").encode())
+            os.close(fd)
+            closed = True
+            os.replace(tmp_path, str(active_file))
+        except Exception:
+            if not closed:
+                os.close(fd)
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
 
 
 def _remove_active_task(task_id: str) -> None:
     """Remove .tasks/.active_task if it matches the given task ID.
 
     Uses FileLock and atomic check-then-delete to prevent TOCTOU races.
+    Falls back to best-effort unlocked operation if filelock is not installed.
     """
-    from filelock import FileLock
-
     tasks_dir = get_tasks_dir()
     active_file = tasks_dir / ACTIVE_TASK_FILE
     lock_file = tasks_dir / f"{ACTIVE_TASK_FILE}.lock"
     try:
+        from filelock import FileLock
         with FileLock(str(lock_file)):
             if active_file.exists():
                 current = active_file.read_text().strip()
                 if current == task_id:
                     active_file.unlink()
+    except ImportError:
+        try:
+            current = active_file.read_text().strip()
+            if current == task_id:
+                active_file.unlink()
+        except (OSError, FileNotFoundError):
+            pass
     except OSError:
         pass
 

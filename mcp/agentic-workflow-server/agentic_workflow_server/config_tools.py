@@ -2,12 +2,13 @@
 Configuration Tools for Agentic Workflow MCP Server
 
 Handles YAML configuration cascade merge:
-  1. Global defaults:  ~/.claude/ or ~/.copilot/ or ~/.gemini/workflow-config.yaml
-  2. Project config:   <repo>/.claude/ or .copilot/ or .gemini/workflow-config.yaml
+  1. Global defaults:  ~/.claude/ or ~/.copilot/ or ~/.gemini/ or ~/.config/opencode/workflow-config.yaml
+  2. Project config:   <repo>/.claude/ or .copilot/ or .gemini/ or .opencode/workflow-config.yaml
   3. Task config:      <repo>/.tasks/TASK_XXX/config.yaml
 
 Each level overrides the previous. Platform directories are checked
-in order (.claude first, then .copilot, then .gemini), using whichever exists.
+in order (.claude first, then .copilot, then .gemini, then .config/opencode),
+using whichever exists.
 """
 
 import os
@@ -199,7 +200,7 @@ def _load_yaml(path: Path) -> Optional[dict]:
         return None
 
 
-PLATFORM_DIRS = [".claude", ".copilot", ".gemini", ".opencode"]
+PLATFORM_DIRS = [".claude", ".copilot", ".gemini", ".config/opencode", ".opencode"]
 
 
 def _get_global_config_path() -> Path:

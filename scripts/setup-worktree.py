@@ -44,10 +44,13 @@ Steps (deterministic):
 """
 
 import argparse
+import base64
 import json
 import os
+import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -74,14 +77,19 @@ AI_HOST_CLI = {
     "claude": "claude",
     "gemini": "gemini",
     "copilot": "copilot",
+    "opencode": "opencode",
 }
 
 HOST_SETTINGS = {
     "claude": [".claude/settings.local.json"],
     "gemini": ["gemini_trust"],
     "copilot": [],
+    "opencode": [],
 }
+# NOTE: AI_HOST_CLI and HOST_SETTINGS are inlined from state_tools.py
+# (see _AI_HOST_CLI and _HOST_SETTINGS in that module) to keep this script standalone. Keep in sync.
 
+# NOTE: This script is also available as scripts/gemini-trust.py for standalone use.
 GEMINI_TRUST_SCRIPT = """
 import json, os, sys
 worktree_abs = sys.argv[1]
@@ -190,6 +198,8 @@ def check_not_in_worktree():
         fatal("Cannot create worktrees from within a worktree. Run from the main repo.")
 
 
+# NOTE: is_wsl() and find_repo_root() are inlined here to keep setup-worktree.py standalone.
+# Canonical versions are in scripts/shared_utils.py. Keep in sync.
 def is_wsl() -> bool:
     """Detect if running under WSL."""
     try:
@@ -197,6 +207,54 @@ def is_wsl() -> bool:
             return "microsoft" in f.read().lower()
     except (OSError, FileNotFoundError, PermissionError):
         return False
+
+
+_CMD_UNSAFE_CHARS = set('&|<>^%"')
+
+
+def _validate_path_for_cmd(path: str) -> None:
+    """Raise ValueError if path contains cmd.exe metacharacters."""
+    bad = _CMD_UNSAFE_CHARS.intersection(path)
+    if bad:
+        raise ValueError(f"Path contains unsafe characters for cmd.exe: {bad!r} in {path!r}")
+
+
+def _symlink_or_junction(target: str, link: str) -> None:
+    """Create a symlink, falling back to NTFS junction on native Windows.
+
+    On non-Windows platforms, always uses os.symlink().
+    On Windows, tries os.symlink() first (needs admin/dev mode),
+    then falls back to 'cmd /c mklink /J' for NTFS junctions.
+    """
+    if platform.system() != "Windows":
+        os.symlink(target, link)
+        return
+    try:
+        os.symlink(target, link)
+    except OSError:
+        # Symlink failed (no admin/dev-mode privilege) — fall back to junction
+        _validate_path_for_cmd(target)
+        _validate_path_for_cmd(link)
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", link, target],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise OSError(
+                f"Failed to create junction {link} -> {target}: {result.stderr.strip()}"
+            )
+
+
+def _remove_symlink_or_junction(path: str) -> None:
+    """Remove a symlink or NTFS junction at *path*."""
+    if os.path.islink(path):
+        os.remove(path)
+    elif platform.system() == "Windows" and os.path.isdir(path):
+        # Junction (directory reparse point) — os.rmdir removes the
+        # reparse point without touching the target's contents.
+        os.rmdir(path)
+    elif os.path.exists(path):
+        os.remove(path)
 
 
 def slugify(text: str) -> str:
@@ -218,7 +276,8 @@ def extract_jira_key(text: str) -> Optional[str]:
 # Config loading (inlined from config_tools.py)
 # ---------------------------------------------------------------------------
 
-PLATFORM_DIRS = [".claude", ".copilot", ".gemini"]
+PLATFORM_DIRS = [".claude", ".copilot", ".gemini", ".config/opencode", ".opencode"]
+# NOTE: PLATFORM_DIRS is inlined from config_tools.py to keep this script standalone. Keep in sync.
 
 # Full default config — only worktree section needed but we merge the whole thing
 # to support overrides at any level.
@@ -409,6 +468,8 @@ def build_resume_prompt(task_id: str, main_tasks_path: str, ai_host: str = "clau
     """Build the resume prompt string for a worktree session."""
     if ai_host in ("gemini", "copilot"):
         resume_cmd = f"@crew-resume {task_id}"
+    elif ai_host == "opencode":
+        resume_cmd = f"/crew-resume {task_id}"
     else:
         resume_cmd = f"/crew resume {task_id}"
     return (
@@ -475,21 +536,45 @@ def run_native_or_wsl(cmd: str, cwd: str, wsl_native: bool, dry_run: bool,
         return run_cmd_shell(cmd, dry_run, cwd=cwd, warn_only=warn_only)
 
 
+def _shell_quote(s: str, use_powershell: bool = False) -> str:
+    """Quote a string for shell use.
+
+    For PowerShell: wraps in single quotes with doubled internal single quotes.
+    This is safe ONLY when the result is used inside a PowerShell script passed
+    via -EncodedCommand (not inside a double-quoted -Command string).
+    """
+    if use_powershell:
+        return "'" + s.replace("'", "''") + "'"
+    return shlex.quote(s)
+
+
+def _powershell_encoded_command(script: str) -> str:
+    """Encode a PowerShell script as a -EncodedCommand argument string.
+
+    Uses Base64-encoded UTF-16LE as recommended by Microsoft. This avoids
+    ALL escaping issues with -Command "..." (no $, backtick, or quote injection).
+    """
+    encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+    return f'-EncodedCommand {encoded}'
+
+
 # ---------------------------------------------------------------------------
 # Terminal detection
 # ---------------------------------------------------------------------------
 
 def detect_terminal_env() -> str:
     """Detect terminal environment for launch commands."""
-    # tmux
     if os.environ.get("TMUX"):
         return "tmux"
-    # Windows Terminal (WSL)
-    if subprocess.run(["which", "wt.exe"], capture_output=True).returncode == 0:
+    # Native Windows (not WSL) — check BEFORE WT detection so that
+    # native Windows with WT installed doesn't fall into the WSL-only
+    # windows_terminal path which generates wsl.exe commands.
+    if platform.system() == "Windows":
+        return "windows_native"
+    # Windows Terminal under WSL — wt.exe on PATH means WSL with WT
+    if shutil.which("wt.exe") or shutil.which("wt"):
         return "windows_terminal"
-    # macOS
-    uname = subprocess.run(["uname", "-s"], capture_output=True, text=True)
-    if uname.returncode == 0 and uname.stdout.strip() == "Darwin":
+    if platform.system() == "Darwin":
         return "macos"
     return "linux_generic"
 
@@ -503,9 +588,10 @@ def build_launch_commands(
     warnings = []
     launch_commands = []
 
-    safe_path = shlex.quote(worktree_abs)
-    safe_prompt = shlex.quote(resume_prompt)
-    safe_task_id = shlex.quote(task_id)
+    use_ps = terminal_env == "windows_native"
+    safe_path = _shell_quote(worktree_abs, use_powershell=use_ps)
+    safe_prompt = _shell_quote(resume_prompt, use_powershell=use_ps)
+    safe_task_id = _shell_quote(task_id, use_powershell=use_ps)
 
     if ai_host == "copilot":
         cli_with_prompt = cli
@@ -515,6 +601,8 @@ def build_launch_commands(
         )
     elif ai_host == "gemini":
         cli_with_prompt = f"{cli} -i {safe_prompt}"
+    elif ai_host == "opencode":
+        cli_with_prompt = f"{cli} run {safe_prompt}"
     else:
         cli_with_prompt = f"{cli} {safe_prompt}"
 
@@ -541,6 +629,12 @@ def build_launch_commands(
         launch_commands.append(
             f'osascript -e \'tell app "Terminal" to do script {shlex.quote(inner_script)}\''
         )
+    elif terminal_env == "windows_native":
+        # PowerShell: build the inner script, then encode it to avoid all escaping issues.
+        # safe_path and cli_with_prompt already use PowerShell single-quote escaping.
+        ps_script = f"Set-Location {safe_path}; {cli_with_prompt}"
+        encoded_arg = _powershell_encoded_command(ps_script)
+        launch_commands.append(f'start powershell -NoExit {encoded_arg}')
     else:
         warnings.append(
             "Cannot reliably open a new terminal on this platform. "
@@ -587,7 +681,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("description", help="Task description (free text or Jira key)")
 
-    parser.add_argument("--ai-host", default=None, choices=["claude", "copilot", "gemini"],
+    parser.add_argument("--ai-host", default=None, choices=["claude", "copilot", "gemini", "opencode"],
                         help="AI host platform (default: auto-detect from config)")
     parser.add_argument("--base-branch", default=None,
                         help="Base branch (default: current branch)")
@@ -858,25 +952,21 @@ def main():
         if not dry_run:
             save_state(donor_dir / "state.json", donor_state)
 
-        # Git commands for recycling
+        # Git commands for recycling (use lists to handle paths with spaces)
         git_cmds = [
-            f"git worktree move {donor_path} {worktree_path}",
-            f"git -C {worktree_path} checkout {base_branch}",
-            f"git -C {worktree_path} checkout -b {branch_name}",
-            f"git branch -d {donor_branch}",
+            (["git", "worktree", "move", donor_path, worktree_path], False),
+            (["git", "-C", worktree_path, "checkout", base_branch], False),
+            (["git", "-C", worktree_path, "checkout", "-b", branch_name], False),
+            (["git", "branch", "-d", donor_branch], True),  # warn_only
         ]
-        for cmd in git_cmds:
+        for cmd_parts, warn_only in git_cmds:
             if wsl_use_native:
                 win_cwd = wslpath_w(main_repo_abs)
-                # Convert WSL paths to Windows-relative
-                win_cmd = cmd.replace("/", "\\") if cmd.startswith("git worktree move") else cmd
-                run_cmd_shell(
-                    f"powershell.exe -Command \"cd '{win_cwd}'; {cmd}\"",
-                    dry_run, warn_only=("branch -d" in cmd),
-                )
+                cmd_str = " ".join(f'"{p}"' if " " in p else p for p in cmd_parts)
+                ps_cmd = _powershell_encoded_command(f"cd '{win_cwd}'; {cmd_str}")
+                run_cmd_shell(ps_cmd, dry_run, warn_only=warn_only)
             else:
-                parts = cmd.split()
-                run_cmd(parts, dry_run, cwd=main_repo_abs, warn_only=("branch -d" in cmd))
+                run_cmd(cmd_parts, dry_run, cwd=main_repo_abs, warn_only=warn_only)
     else:
         # Fresh worktree
         state["worktree"] = {
@@ -890,28 +980,26 @@ def main():
         if not dry_run:
             save_state(task_dir / "state.json", state)
 
-        git_cmd = f"git worktree add -b {branch_name} {worktree_path} {base_branch}"
+        git_parts = ["git", "worktree", "add", "-b", branch_name, worktree_path, base_branch]
         if wsl_use_native:
             win_cwd = wslpath_w(main_repo_abs)
-            run_cmd_shell(
-                f"powershell.exe -Command \"cd '{win_cwd}'; {git_cmd}\"",
-                dry_run,
-            )
+            cmd_str = " ".join(f'"{p}"' if " " in p else p for p in git_parts)
+            ps_cmd = _powershell_encoded_command(f"cd '{win_cwd}'; {cmd_str}")
+            run_cmd_shell(ps_cmd, dry_run)
         else:
-            run_cmd(git_cmd.split(), dry_run, cwd=main_repo_abs)
+            run_cmd(git_parts, dry_run, cwd=main_repo_abs)
 
     # -----------------------------------------------------------------------
     # Step 11: Symlink .tasks/ + copy/patch host settings
     # -----------------------------------------------------------------------
     main_tasks_abs = os.path.join(main_repo_abs, ".tasks")
 
-    # Symlink .tasks/
+    # Symlink .tasks/ (falls back to NTFS junction on native Windows)
     symlink_target = os.path.join(worktree_abs, ".tasks")
     if not dry_run:
-        # ln -sfn
         if os.path.islink(symlink_target) or os.path.exists(symlink_target):
-            os.remove(symlink_target)
-        os.symlink(main_tasks_abs, symlink_target)
+            _remove_symlink_or_junction(symlink_target)
+        _symlink_or_junction(main_tasks_abs, symlink_target)
     else:
         print(f"  [dry-run] Would symlink {symlink_target} -> {main_tasks_abs}", file=sys.stderr)
 
@@ -955,6 +1043,8 @@ def main():
         ".claude/workflow-config.yaml",
         ".copilot/workflow-config.yaml",
         ".gemini/workflow-config.yaml",
+        ".config/opencode/workflow-config.yaml",
+        ".opencode/workflow-config.yaml",
     ]
     configs_copied = 0
     for wf_config in WORKFLOW_CONFIG_PATHS:
@@ -963,7 +1053,6 @@ def main():
         if os.path.isfile(src) and not os.path.isfile(dest):
             if not dry_run:
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
-                import shutil
                 shutil.copy2(src, dest)
                 configs_copied += 1
             else:

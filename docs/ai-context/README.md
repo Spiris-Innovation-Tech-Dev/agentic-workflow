@@ -8,6 +8,7 @@ This directory helps AI agents understand and work with this codebase. Read this
 |------|---------|
 | [README.md](./README.md) | Project overview, structure, and getting started (this file) |
 | [architecture.md](./architecture.md) | Detailed architecture, patterns, and conventions |
+| [cross-platform.md](./cross-platform.md) | Cross-platform patterns: 4 AI hosts, Windows/WSL/macOS, fallbacks |
 | [memory-preservation.md](./memory-preservation.md) | How to save/retrieve discoveries across context compaction |
 
 ---
@@ -41,7 +42,9 @@ agentic-workflow/
 ├── commands/                   # Slash-command definitions
 │   ├── crew.md                 # Main /crew command (orchestrator)
 │   ├── crew-config.md          # /crew-config command
-│   └── crew-resume.md          # /crew-resume command
+│   ├── crew-resume.md          # /crew-resume command
+│   ├── crew-checkpoint.md      # /crew-checkpoint command (save workflow checkpoint)
+│   └── crew-cost-report.md     # /crew-cost-report command (cost breakdown)
 ├── crew-board/                 # Norton Commander-style TUI dashboard (Rust)
 │   ├── Cargo.toml              # Rust project manifest (ratatui + crossterm)
 │   ├── CLAUDE.md               # Agent instructions for this sub-project
@@ -50,7 +53,7 @@ agentic-workflow/
 ├── config/
 │   ├── workflow-config.yaml    # Reference configuration with all settings
 │   ├── terminal-colorschemes.json  # Color schemes for worktree tabs
-│   ├── hooks-settings.json     # Git hook settings
+│   ├── hooks-settings.json     # Claude Code lifecycle hooks (PreToolUse + Stop)
 │   ├── platform-orchestrators/ # Platform-specific orchestrator prompts
 │   │   ├── copilot.md
 │   │   ├── gemini.md
@@ -71,19 +74,30 @@ agentic-workflow/
 │   └── pyproject.toml          # Package metadata (v0.4.0)
 ├── scripts/                    # Helper scripts
 │   ├── build-agents.py         # Builds platform-specific agent files
+│   ├── setup-worktree.py       # Worktree creation (standalone, no MCP imports)
 │   ├── cleanup-worktree.py     # Worktree cleanup helper
+│   ├── crew_orchestrator.py    # CLI orchestrator (batches MCP calls)
 │   ├── fix-worktree-paths.py   # WSL path compatibility fix
+│   ├── shared_utils.py         # Shared utilities (is_wsl, find_repo_root)
+│   ├── gemini-trust.py         # Standalone Gemini trustedFolders helper
+│   ├── install-wt-colorschemes.py  # Windows Terminal color scheme installer
+│   ├── context_preparation.py  # Gemini research prep
 │   ├── validate-transition.py  # Workflow transition validator
 │   ├── check-workflow-complete.py  # Completion checker
-│   ├── context_preparation.py  # Gemini research prep
 │   └── workflow_state.py       # State utilities
 ├── docs/
 │   ├── overview.md             # Non-technical overview (for managers)
 │   └── ai-context/             # AI-agent-facing documentation (this dir)
 ├── .beads/                     # Issue tracker data (beads/bd)
 ├── .tasks/                     # Per-task workflow state (symlink in worktrees)
-├── install.sh / install-*.{sh,ps1}   # Platform install scripts
-├── uninstall.sh / uninstall-*.{sh,ps1}
+├── install.sh                  # Claude installer (primary)
+├── install-copilot.sh          # Copilot installer
+├── install-gemini.sh           # Gemini installer
+├── install-opencode.sh         # OpenCode installer
+├── uninstall.sh                # Claude uninstaller
+├── uninstall-copilot.sh        # Copilot uninstaller
+├── uninstall-gemini.sh         # Gemini uninstaller
+├── uninstall-opencode.sh       # OpenCode uninstaller
 ├── plugin.json                 # Plugin manifest
 ├── AGENTS.md                   # Agent instructions for working in this repo
 ├── CLAUDE.md                   # Points to AGENTS.md
@@ -135,8 +149,8 @@ Each task gets a directory under `.tasks/TASK_XXX/` containing:
 Settings flow through four levels (later overrides earlier):
 
 1. **Defaults** — Hardcoded in `config_tools.py:DEFAULT_CONFIG`
-2. **Global** — `~/.claude/workflow-config.yaml` (or Copilot/Gemini/OpenCode equivalent)
-3. **Project** — `<repo>/.claude/workflow-config.yaml`
+2. **Global** — `~/<platform_dir>/workflow-config.yaml` (searched in order: `.claude`, `.copilot`, `.gemini`, `.config/opencode`, `.opencode`)
+3. **Project** — `<repo>/<platform_dir>/workflow-config.yaml` (same search order)
 4. **Task** — `.tasks/TASK_XXX/config.yaml`
 
 Reference config with all settings and inline docs: `config/workflow-config.yaml`
@@ -193,12 +207,15 @@ Agent prompts are platform-agnostic markdown. Platform differences are handled b
 
 - **Preambles** (`config/platform-preambles/`) — Prepended to agent prompts per platform
 - **Orchestrators** (`config/platform-orchestrators/`) — Platform-specific orchestration instructions
-- **build-agents.py** — Generates platform-specific agent files (e.g., `.github/agents/` for Copilot, Gemini equivalents)
+- **build-agents.py** — Generates platform-specific agent files with correct frontmatter, tool restrictions, and output paths per platform. Routes global installs to platform-specific directories (`~/.copilot/agents/`, `~/.config/opencode/`, etc.)
 
 Commands differ by platform:
-- Claude: `/crew start "task"`, `/crew-worktree "task"`
-- OpenCode: `/crew "task"` (reads Claude commands natively)
-- Copilot/Gemini: `@crew "task"`, `@crew-worktree "task"`
+- Claude: `/crew "task"`, `/crew-worktree "task"`
+- OpenCode: `/crew "task"`, `/crew-worktree "task"` (uses `$ARGUMENTS` instead of `$ARGS`)
+- Copilot: `@crew "task"`, `@crew-worktree "task"`
+- Gemini: `@crew-orchestrator "task"`, `@crew-worktree "task"`
+
+See [cross-platform.md](./cross-platform.md) for detailed platform configuration reference (MCP keys, agent frontmatter, directory routing).
 
 ## Quick Reference for Making Changes
 
@@ -218,8 +235,8 @@ Commands differ by platform:
 
 ### Modifying agent behavior
 1. Edit the markdown file in `agents/`
-2. Run `scripts/build-agents.py` to regenerate platform-specific copies
-3. The `.github/agents/` mirror files are auto-generated — don't edit them directly
+2. Run `scripts/build-agents.py <platform>` to regenerate platform-specific copies
+3. All output files are auto-generated — don't edit them directly (`.github/agents/`, `~/.copilot/agents/`, `~/.gemini/agents/`, `~/.config/opencode/`, `.opencode/`)
 
 ### Adding tests
 - Tests go in `mcp/agentic-workflow-server/tests/`
