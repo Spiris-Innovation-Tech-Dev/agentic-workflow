@@ -5,6 +5,27 @@ tools:
   write: false
   edit: false
   patch: false
+permission:
+  edit: deny
+  bash:
+    "*": deny
+    "git status*": allow
+    "git log*": allow
+    "git diff*": allow
+    "git show*": allow
+    "git branch*": allow
+    "grep *": allow
+    "find *": allow
+    "ls *": allow
+    "cat *": allow
+    "head *": allow
+    "tail *": allow
+    "wc *": allow
+    "tree *": allow
+    "python3 -m pytest*": allow
+    "npm test*": allow
+    "make test*": allow
+  webfetch: deny
 ---
 
 ## Tool Discipline

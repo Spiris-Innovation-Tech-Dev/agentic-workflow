@@ -81,7 +81,7 @@ Ready to continue?
 ### Step 5: Continue Workflow
 
 Based on state, invoke the appropriate agent:
-- Load agent prompt from `~/.claude/agents/`
+- Load agent prompt from `~/.opencode/agents/`
 - Provide all necessary context
 - Continue workflow loop
 

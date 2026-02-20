@@ -21,29 +21,30 @@ import os
 import sys
 from pathlib import Path
 
+try:
+    from shared_utils import is_wsl, find_repo_root
+except ImportError:
+    def is_wsl() -> bool:
+        """Detect if running under WSL."""
+        try:
+            with open("/proc/version") as f:
+                return "microsoft" in f.read().lower()
+        except OSError:
+            return False
 
-def is_wsl() -> bool:
-    """Detect if running under WSL."""
-    try:
-        with open("/proc/version") as f:
-            return "microsoft" in f.read().lower()
-    except OSError:
-        return False
-
-
-def find_repo_root() -> Path:
-    """Walk up from CWD looking for .git/ directory (main repo)."""
-    current = Path.cwd().resolve()
-    while True:
-        git_path = current / ".git"
-        if git_path.is_dir():
-            return current
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    print("Error: Could not find repo root (no .git/ directory found).", file=sys.stderr)
-    sys.exit(1)
+    def find_repo_root() -> Path:
+        """Walk up from CWD looking for .git/ directory (main repo)."""
+        current = Path.cwd().resolve()
+        while True:
+            git_path = current / ".git"
+            if git_path.is_dir():
+                return current
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        print("Error: Could not find repo root (no .git/ directory found).", file=sys.stderr)
+        sys.exit(1)
 
 
 def load_state(state_file: Path) -> dict:

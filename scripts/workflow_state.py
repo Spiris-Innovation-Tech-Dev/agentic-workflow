@@ -31,6 +31,7 @@ PHASE_ORDER = [
     "reviewer",
     "skeptic",
     "implementer",
+    "feedback",
     "technical_writer"
 ]
 
@@ -58,7 +59,7 @@ class WorkflowState:
     def _load_state(self) -> dict:
         """Load state from JSON file or create default state."""
         if self.state_file.exists():
-            with open(self.state_file, "r") as f:
+            with open(self.state_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return self._create_default_state()
 
@@ -91,7 +92,7 @@ class WorkflowState:
         """Persist state to JSON file."""
         self.task_dir.mkdir(parents=True, exist_ok=True)
         self._state["updated_at"] = datetime.now().isoformat()
-        with open(self.state_file, "w") as f:
+        with open(self.state_file, "w", encoding="utf-8") as f:
             json.dump(self._state, f, indent=2)
 
     @property
@@ -143,19 +144,32 @@ class WorkflowState:
         """
         Check if transition to given phase is valid.
 
+        Respects workflow_mode.phases if set — in turbo mode the sequence
+        is developer→implementer→technical_writer, so skipping architect/
+        reviewer/skeptic is expected.
+
         Returns:
             Tuple of (can_transition, reason)
         """
         to_phase = normalize_phase(to_phase)
-        if to_phase not in PHASE_ORDER:
+
+        # Use mode-specific phase order if available, else full PHASE_ORDER
+        mode_phases = self._state.get("workflow_mode", {}).get("phases")
+        phase_order = [normalize_phase(p) for p in mode_phases] if mode_phases else PHASE_ORDER
+
+        if to_phase not in phase_order:
+            # Phase not in this mode's pipeline — allow if it's a known phase
+            if to_phase in PHASE_ORDER:
+                return True, f"Phase {to_phase} not in current mode pipeline, allowed"
             return False, f"Invalid phase: {to_phase}"
 
         current = self.phase
 
         if current is None:
-            if to_phase == "architect":
-                return True, "Starting workflow with architect"
-            return False, "Workflow must start with architect phase"
+            first_phase = phase_order[0] if phase_order else "architect"
+            if to_phase == first_phase:
+                return True, f"Starting workflow with {first_phase}"
+            return False, f"Workflow must start with {first_phase} phase"
 
         if to_phase == current:
             return True, "Re-running current phase"
@@ -165,11 +179,17 @@ class WorkflowState:
                 return True, "Looping back to developer due to review issues"
             return False, f"Phase {to_phase} already completed"
 
-        current_idx = PHASE_ORDER.index(current)
-        to_idx = PHASE_ORDER.index(to_phase)
+        # Check forward transition using mode-aware phase order
+        current_norm = normalize_phase(current)
+        if current_norm in phase_order and to_phase in phase_order:
+            current_idx = phase_order.index(current_norm)
+            to_idx = phase_order.index(to_phase)
 
-        if to_idx == current_idx + 1:
-            return True, f"Valid forward transition from {current} to {to_phase}"
+            if to_idx == current_idx + 1:
+                return True, f"Valid forward transition from {current} to {to_phase}"
+        elif to_phase in phase_order:
+            # Current phase not in mode pipeline (e.g. optional agent ran) — allow forward
+            return True, f"Forward transition to {to_phase} after out-of-pipeline phase"
 
         if to_phase == "developer" and current in ("reviewer", "skeptic"):
             return True, f"Valid loop-back from {current} to developer"
@@ -432,7 +452,7 @@ def _detect_worktree_task_id(tasks_dir: Path) -> Optional[str]:
             state_file = task_dir / "state.json"
             if state_file.exists():
                 try:
-                    with open(state_file) as f:
+                    with open(state_file, encoding="utf-8") as f:
                         state = json.load(f)
                     wt = state.get("worktree")
                     if wt and wt.get("status") == "active" and wt.get("path"):
@@ -476,7 +496,7 @@ def find_active_task() -> Optional[str]:
                 task_dir = tasks_dir / task_id
                 state_file = task_dir / "state.json"
                 if state_file.exists():
-                    with open(state_file) as f:
+                    with open(state_file, encoding="utf-8") as f:
                         state = json.load(f)
                     # Only use if task isn't completed (stale marker)
                     if state.get("status") != "completed":
@@ -490,15 +510,18 @@ def find_active_task() -> Optional[str]:
         if task_dir.is_dir():
             state_file = task_dir / "state.json"
             if state_file.exists():
-                with open(state_file) as f:
-                    state = json.load(f)
-                    # Skip tasks with active worktrees — they're worked on elsewhere
-                    wt = state.get("worktree")
-                    if wt and wt.get("status") == "active":
-                        continue
-                    complete, _ = WorkflowState(str(task_dir)).is_complete()
-                    if not complete:
-                        active_tasks.append((task_dir, state.get("updated_at", "")))
+                try:
+                    with open(state_file, encoding="utf-8") as f:
+                        state = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    continue
+                # Skip tasks with active worktrees — they're worked on elsewhere
+                wt = state.get("worktree")
+                if wt and wt.get("status") == "active":
+                    continue
+                complete, _ = WorkflowState(str(task_dir)).is_complete()
+                if not complete:
+                    active_tasks.append((task_dir, state.get("updated_at", "")))
 
     if active_tasks:
         active_tasks.sort(key=lambda x: x[1], reverse=True)

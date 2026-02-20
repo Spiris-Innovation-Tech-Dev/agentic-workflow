@@ -2,7 +2,6 @@
 description: "Technical Writer — maintains AI-context documentation"
 mode: subagent
 tools:
-  bash: false
   patch: false
 ---
 

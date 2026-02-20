@@ -1,6 +1,6 @@
 ---
 description: "Workflow Status — read-only overview of all tasks, worktrees, and model health"
-agent: build
+agent: read
 subtask: true
 ---
 
@@ -181,6 +181,8 @@ Linked Tasks: TASK_039 (builds_on), TASK_040 (related)
 **Allowed read-only MCP tools:** `workflow_get_state`, `workflow_get_context_usage`, `workflow_get_resilience_status`, `workflow_get_discoveries`, `workflow_get_linked_tasks`, `workflow_get_worktree_info`, `config_get_effective`
 
 **FORBIDDEN tools** (do NOT call these): `workflow_transition`, `workflow_complete_phase`, `workflow_can_transition`, `workflow_can_stop`, `workflow_is_complete`, `workflow_add_review_issue`, `workflow_cleanup_worktree`, or any tool that modifies state.
+
+**MCP unavailable fallback:** If MCP tools are not available (e.g., OpenCode subtasks), read `.tasks/*/state.json` files directly for all status information. Skip the MCP-only sections (Context Usage, Model Health) and note they are unavailable.
 
 When invoked:
 

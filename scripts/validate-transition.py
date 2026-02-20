@@ -13,6 +13,8 @@ The hook:
 - Reads the Task tool input from stdin (JSON)
 - Finds the session-local task (.active_task → worktree → allow)
 - Checks the agent being spawned against current workflow state
+- Respects workflow modes (turbo/fast/minimal skip phases)
+- Allows single-agent consultations without blocking
 - Blocks invalid transitions (exit 2)
 - Allows valid transitions (exit 0)
 
@@ -40,15 +42,29 @@ sys.path.insert(0, str(Path(__file__).parent))
 from workflow_state import WorkflowState, _resolve_tasks_dir, _detect_worktree_task_id, PHASE_ORDER
 
 
+# Maps agent names to their workflow phase (None = optional/specialist agent)
 AGENT_TO_PHASE = {
     "architect": "architect",
     "developer": "developer",
     "reviewer": "reviewer",
     "skeptic": "skeptic",
     "implementer": "implementer",
+    "feedback": "feedback",
     "technical-writer": "technical_writer",
     "technical_writer": "technical_writer",
+    # Optional specialist agents — not part of the main pipeline
+    "security-auditor": None,
+    "security_auditor": None,
+    "performance-analyst": None,
+    "performance_analyst": None,
+    "api-guardian": None,
+    "api_guardian": None,
+    "accessibility-reviewer": None,
+    "accessibility_reviewer": None,
 }
+
+# All known agent names for prompt detection
+ALL_AGENT_NAMES = set(AGENT_TO_PHASE.keys())
 
 
 def extract_agent_from_prompt(prompt: str) -> str | None:
@@ -62,7 +78,7 @@ def extract_agent_from_prompt(prompt: str) -> str | None:
     """
     prompt_lower = prompt.lower()
 
-    for agent_name in AGENT_TO_PHASE.keys():
+    for agent_name in ALL_AGENT_NAMES:
         patterns = [
             rf"agents/{agent_name}\.md",
             rf"# {agent_name} agent",
@@ -73,6 +89,22 @@ def extract_agent_from_prompt(prompt: str) -> str | None:
                 return agent_name
 
     return None
+
+
+def _is_consultation(prompt: str) -> bool:
+    """Detect if this is a single-agent consultation (not a workflow dispatch).
+
+    Consultations are ad-hoc agent invocations that don't follow the workflow
+    pipeline. They're triggered by `/crew ask <agent> "question"` or similar.
+    """
+    prompt_lower = prompt.lower()
+
+    # No task ID reference → likely a consultation
+    if not re.search(r"task[_\s-]?(?:id|directory).*?TASK_\d+", prompt, re.IGNORECASE):
+        if not re.search(r"\.tasks/TASK_\d+", prompt):
+            return True
+
+    return False
 
 
 def _find_session_task():
@@ -117,31 +149,42 @@ def main():
     prompt = tool_input.get("prompt", "")
     subagent_type = tool_input.get("subagent_type", "")
 
+    # Only validate general-purpose and Plan agents
     if subagent_type not in ("general-purpose", "Plan"):
         sys.exit(0)
 
+    # Quick check: is this even a workflow-related agent?
     if "crew" not in prompt.lower() and "workflow" not in prompt.lower():
         is_workflow_agent = False
-        for agent_name in AGENT_TO_PHASE.keys():
+        for agent_name in ALL_AGENT_NAMES:
             if agent_name.replace("-", "_") in prompt.lower() or agent_name.replace("_", "-") in prompt.lower():
                 is_workflow_agent = True
                 break
         if not is_workflow_agent:
             sys.exit(0)
 
+    # Single-agent consultations bypass workflow validation
+    if _is_consultation(prompt):
+        sys.exit(0)
+
     task_dir = _find_session_task()
     if not task_dir:
-        # No crew workflow in this session — allow agent spawn
         sys.exit(0)
 
     state = WorkflowState(task_dir)
+
+    # Completed tasks don't block anything
+    if state._state.get("status") == "completed":
+        sys.exit(0)
 
     agent_name = extract_agent_from_prompt(prompt)
     if not agent_name:
         sys.exit(0)
 
     target_phase = AGENT_TO_PHASE.get(agent_name)
-    if not target_phase:
+
+    # Optional/specialist agents (phase=None) are always allowed
+    if target_phase is None:
         sys.exit(0)
 
     can_transition, reason = state.can_transition(target_phase)

@@ -6,7 +6,7 @@ View and modify workflow configuration settings.
 
 ### Display Current Configuration
 
-1. Read `~/.claude/workflow-config.yaml`
+1. Read `~/{__platform_dir__}/workflow-config.yaml`
 2. Parse the YAML and display the **actual values** in a formatted table
 3. Use `✓ Enabled` / `✗ Disabled` based on the real config values — do NOT use hardcoded defaults
 
@@ -14,7 +14,7 @@ Display format:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Workflow Configuration (~/.claude/workflow-config.yaml)       │
+│ Workflow Configuration (~/{__platform_dir__}/workflow-config.yaml)       │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │ PLANNING CHECKPOINTS                                         │
@@ -120,8 +120,8 @@ Offer preset configurations:
 ### Apply Changes
 
 After getting user preferences:
-1. Update `~/.claude/workflow-config.yaml`
+1. Update `~/{__platform_dir__}/workflow-config.yaml`
 2. Confirm changes
 3. Show new configuration
 
-Now, read `~/.claude/workflow-config.yaml`, display the current configuration with actual values, and ask what the user wants to change.
+Now, read `~/{__platform_dir__}/workflow-config.yaml`, display the current configuration with actual values, and ask what the user wants to change.

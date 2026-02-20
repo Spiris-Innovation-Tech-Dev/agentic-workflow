@@ -31,7 +31,7 @@ echo ""
 # OpenCode uses ~/.config/opencode/ globally and .opencode/ per-project
 OPENCODE_GLOBAL="$HOME/.config/opencode"
 
-# Build agents to home directory (creates ~/.opencode/agents/)
+# Build agents to home directory (creates ~/.config/opencode/agents/)
 echo "Installing agents (global)..."
 python3 "$SCRIPT_DIR/scripts/build-agents.py" opencode --output "$HOME" || {
     echo "  ✗ Failed to build agents"
@@ -88,20 +88,15 @@ else
     echo "  ⚠ MCP server directory not found: $MCP_SERVER_DIR"
 fi
 
-# Register MCP server in opencode.json (project-level)
+# Register MCP server in global config (~/.config/opencode/opencode.json)
 echo ""
 echo "Registering MCP server..."
 
-# Use opencode CLI if available, otherwise write config directly
-if command -v opencode &> /dev/null; then
-    opencode mcp add agentic-workflow --type local --command "python3 -m agentic_workflow_server.server" 2>/dev/null && {
-        echo "  ✓ MCP server registered via opencode CLI"
-    } || {
-        echo "  ⚠ opencode mcp add failed, writing config directly..."
-        python3 << 'PYTHON_SCRIPT'
+python3 << 'PYTHON_SCRIPT'
 import json, os
 
-config_path = "opencode.json"
+config_path = os.path.expanduser("~/.config/opencode/opencode.json")
+os.makedirs(os.path.dirname(config_path), exist_ok=True)
 
 config = {}
 if os.path.isfile(config_path):
@@ -124,35 +119,6 @@ with open(config_path, "w") as f:
 
 print(f"  ✓ MCP server registered in {config_path}")
 PYTHON_SCRIPT
-    }
-else
-    python3 << 'PYTHON_SCRIPT'
-import json, os
-
-config_path = "opencode.json"
-
-config = {}
-if os.path.isfile(config_path):
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        pass
-
-mcp = config.setdefault("mcp", {})
-mcp["agentic-workflow"] = {
-    "type": "local",
-    "command": ["python3", "-m", "agentic_workflow_server.server"],
-    "enabled": True
-}
-
-with open(config_path, "w") as f:
-    json.dump(config, f, indent=2)
-    f.write("\n")
-
-print(f"  ✓ MCP server registered in {config_path}")
-PYTHON_SCRIPT
-fi
 
 echo ""
 echo "========================================"
