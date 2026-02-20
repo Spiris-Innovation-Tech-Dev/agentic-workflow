@@ -1,5 +1,5 @@
 use crate::cleanup;
-use crate::data::task::{self, TaskArtifact};
+use crate::data::task::{self, Discovery, Interaction, TaskArtifact};
 use crate::data::RepoData;
 use crate::launcher::{self, AiHost, TerminalEnv};
 use crate::worktree;
@@ -169,6 +169,9 @@ pub struct App {
     pub detail_mode: DetailMode,
     pub cached_artifacts: Vec<TaskArtifact>,
     pub cached_task_dir: Option<PathBuf>,
+    pub cached_interactions: Vec<Interaction>,
+    pub cached_discoveries: Vec<Discovery>,
+    pub cached_history_task_dir: Option<PathBuf>,
 
     // Launch popup
     pub launch_popup: Option<LaunchPopup>,
@@ -207,6 +210,9 @@ impl App {
             detail_mode: DetailMode::Overview,
             cached_artifacts: Vec::new(),
             cached_task_dir: None,
+            cached_interactions: Vec::new(),
+            cached_discoveries: Vec::new(),
+            cached_history_task_dir: None,
             launch_popup: None,
             create_popup: None,
             search_popup: None,
@@ -242,6 +248,7 @@ impl App {
         self.clamp_issue_selection();
         // Force artifact reload on next access
         self.cached_task_dir = None;
+        self.cached_history_task_dir = None;
         self.ensure_artifacts();
     }
 
@@ -434,8 +441,27 @@ impl App {
         if self.current_task().is_none() {
             return;
         }
+        self.ensure_history_data();
         self.detail_mode = DetailMode::History;
         self.detail_scroll = 0;
+    }
+
+    /// Load interactions and discoveries for the current task (lazy, cached).
+    fn ensure_history_data(&mut self) {
+        let task_dir = match self.current_task_dir() {
+            Some(d) => d.clone(),
+            None => {
+                self.cached_interactions.clear();
+                self.cached_discoveries.clear();
+                self.cached_history_task_dir = None;
+                return;
+            }
+        };
+        if self.cached_history_task_dir.as_ref() != Some(&task_dir) {
+            self.cached_interactions = task::load_interactions(&task_dir);
+            self.cached_discoveries = task::load_discoveries(&task_dir);
+            self.cached_history_task_dir = Some(task_dir);
+        }
     }
 
     /// Go back from doc reader/list/history to overview.
