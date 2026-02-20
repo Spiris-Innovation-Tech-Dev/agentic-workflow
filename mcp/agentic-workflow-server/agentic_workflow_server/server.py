@@ -1207,7 +1207,7 @@ TOOLS = [
                 "ai_host": {
                     "type": "string",
                     "description": "AI host CLI (determines which settings to copy). Default: claude.",
-                    "enum": ["claude", "gemini", "copilot"],
+                    "enum": ["claude", "gemini", "copilot", "opencode"],
                     "default": "claude"
                 },
                 "branch_name": {
@@ -1280,7 +1280,7 @@ TOOLS = [
                 "ai_host": {
                     "type": "string",
                     "description": "AI host CLI to launch",
-                    "enum": ["claude", "gemini", "copilot"],
+                    "enum": ["claude", "gemini", "copilot", "opencode"],
                     "default": "claude"
                 },
                 "main_repo_path": {

@@ -86,7 +86,7 @@ Keys are routed in priority order:
 ### Worktree Creation (`F4` key)
 Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`. Press `F4` on a repo row to:
 1. Enter task description (text input via `tui-input`)
-2. Select AI host (Claude/Copilot/Gemini)
+2. Select AI host (Claude/Copilot/Gemini/OpenCode)
 3. Toggle settings (pull latest, launch terminal)
 4. Background thread runs git operations (~100ms vs ~2s for Python)
 5. Shows result with task ID, branch, directory, color scheme

@@ -6,7 +6,7 @@ Detailed architecture reference for AI agents working on the agentic-workflow co
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  AI Host CLI (Claude Code / Copilot / Gemini)               │
+│  AI Host CLI (Claude Code / Copilot / Gemini / OpenCode)     │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  /crew command (commands/crew.md)                     │  │
 │  │  Orchestrates the agent loop, spawns subagents        │  │
@@ -104,7 +104,7 @@ Key config sections:
 
 **`config_get_effective(task_id?)`** — Returns merged config from all 4 cascade levels.
 
-**Multi-platform config paths** — The server searches for config files in Claude, Copilot, and Gemini config directories (in that preference order).
+**Multi-platform config paths** — The server searches for config files in Claude, Copilot, Gemini, and OpenCode config directories (in that preference order).
 
 ### orchestration_tools.py — Crew Helpers (~1400 lines)
 
@@ -229,6 +229,7 @@ Each agent is a markdown file in `agents/` with:
 `scripts/build-agents.py` generates platform-specific copies:
 - `mcp/agentic-workflow-server/.github/agents/crew-*.agent.md` — For Copilot
 - Gemini equivalents in their config dir
+- OpenCode equivalents in `.opencode/agents/` and `.opencode/commands/`
 
 **Do not edit mirror files directly.** Edit `agents/` source and run the build script.
 
@@ -302,13 +303,13 @@ The template includes only tools essential for crew workflow operation. It does 
 
 #### Per-Platform Support
 
-| Capability | Claude | Gemini | Copilot |
-|---|---|---|---|
-| **File access** (additionalDirectories) | Global (install) + per-worktree | N/A | N/A |
-| **MCP tool permissions** (permissions.allow) | Per-worktree via template merge | No equivalent system | No equivalent system |
-| **Folder trust** (trustedFolders.json) | N/A | Global (install) + per-worktree | N/A |
-| **Bash command patterns** | Per-worktree via template merge | No equivalent system | No equivalent system |
-| **.tasks/ symlink** | Yes | Yes | Yes |
+| Capability | Claude | Gemini | Copilot | OpenCode |
+|---|---|---|---|---|
+| **File access** (additionalDirectories) | Global (install) + per-worktree | N/A | N/A | N/A |
+| **MCP tool permissions** (permissions.allow) | Per-worktree via template merge | No equivalent system | No equivalent system | Per-agent via frontmatter |
+| **Folder trust** (trustedFolders.json) | N/A | Global (install) + per-worktree | N/A | N/A |
+| **Bash command patterns** | Per-worktree via template merge | No equivalent system | No equivalent system | Per-agent via frontmatter |
+| **.tasks/ symlink** | Yes | Yes | Yes | Yes |
 
 #### How to Customize or Opt Out
 
@@ -377,7 +378,7 @@ python3 -m pytest tests/ -k "test_tmux" -v     # By name pattern
 
 3. **State file locking**: `state.json` uses filelock. If a lock file is stale, delete `state.json.lock`.
 
-4. **Config cascade order**: Claude dirs are searched first, then Copilot, then Gemini. The first found wins at each level.
+4. **Config cascade order**: Claude dirs are searched first, then Copilot, then Gemini, then OpenCode. The first found wins at each level.
 
 5. **Worktree .tasks/ symlink**: In worktrees, `.tasks/` is a symlink to the main repo. MCP tools resolve this automatically via `find_task_dir()`, but direct file reads should use the absolute main repo path.
 
