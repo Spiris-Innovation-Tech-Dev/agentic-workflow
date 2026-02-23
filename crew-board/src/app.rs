@@ -270,12 +270,17 @@ impl App {
             .and_then(|ri| self.repos.get(ri))
     }
 
-    /// Get the selected task (only if a task row is selected).
-    pub fn current_task(&self) -> Option<&crate::data::task::TaskState> {
+    /// Get the selected loaded task (only if a task row is selected).
+    pub fn current_loaded_task(&self) -> Option<&crate::data::task::LoadedTask> {
         match self.current_tree_row()? {
-            TreeRow::Task(ri, ti) => self.repos.get(*ri)?.tasks.get(*ti).map(|(_, t)| t),
+            TreeRow::Task(ri, ti) => self.repos.get(*ri)?.tasks.get(*ti),
             TreeRow::Repo(_) => None,
         }
+    }
+
+    /// Get the selected task state (only if a task row is selected).
+    pub fn current_task(&self) -> Option<&crate::data::task::TaskState> {
+        self.current_loaded_task().map(|lt| &lt.state)
     }
 
     pub fn current_issue(&self) -> Option<&crate::data::beads::BeadsIssue> {
@@ -400,22 +405,26 @@ impl App {
 
     /// Get the task directory for the currently selected task.
     pub fn current_task_dir(&self) -> Option<&PathBuf> {
-        match self.current_tree_row()? {
-            TreeRow::Task(ri, ti) => self.repos.get(*ri)?.tasks.get(*ti).map(|(dir, _)| dir),
-            TreeRow::Repo(_) => None,
-        }
+        self.current_loaded_task().map(|lt| &lt.dir)
     }
 
     /// Load/refresh artifacts for the currently selected task.
     fn ensure_artifacts(&mut self) {
-        let task_dir = match self.current_task_dir() {
-            Some(d) => d.clone(),
+        let loaded = match self.current_loaded_task() {
+            Some(lt) => lt,
             None => {
                 self.cached_artifacts.clear();
                 self.cached_task_dir = None;
                 return;
             }
         };
+        // Archived tasks have no artifacts on disk
+        if loaded.archived {
+            self.cached_artifacts.clear();
+            self.cached_task_dir = None;
+            return;
+        }
+        let task_dir = loaded.dir.clone();
         // Only reload if task changed
         if self.cached_task_dir.as_ref() != Some(&task_dir) {
             self.cached_artifacts = task::load_artifacts(&task_dir);
@@ -425,8 +434,9 @@ impl App {
 
     /// Enter document list mode (press 'd' on a task).
     pub fn enter_doc_list(&mut self) {
-        if self.current_task().is_none() {
-            return;
+        match self.current_loaded_task() {
+            Some(lt) if !lt.archived => {}
+            _ => return,
         }
         self.ensure_artifacts();
         if self.cached_artifacts.is_empty() {
@@ -438,8 +448,9 @@ impl App {
 
     /// Enter history view (press 'h' on a task).
     pub fn enter_history(&mut self) {
-        if self.current_task().is_none() {
-            return;
+        match self.current_loaded_task() {
+            Some(lt) if !lt.archived => {}
+            _ => return,
         }
         self.ensure_history_data();
         self.detail_mode = DetailMode::History;
@@ -520,7 +531,12 @@ impl App {
         let (work_dir, task_id, task_desc) = match self.current_tree_row() {
             Some(TreeRow::Task(ri, ti)) => {
                 let repo = &self.repos[*ri];
-                let (id, task) = &repo.tasks[*ti];
+                let loaded = &repo.tasks[*ti];
+                // Skip launch for archived tasks
+                if loaded.archived {
+                    return;
+                }
+                let task = &loaded.state;
                 // Use worktree abs path from launch info, then relative path, then repo root
                 let dir = task
                     .worktree
@@ -545,7 +561,7 @@ impl App {
                         }
                     })
                     .unwrap_or_else(|| repo.path.clone());
-                (dir, id.to_string_lossy().to_string(), task.description.clone())
+                (dir, loaded.dir.to_string_lossy().to_string(), task.description.clone())
             }
             Some(TreeRow::Repo(ri)) => {
                 let repo = &self.repos[*ri];
@@ -957,10 +973,13 @@ impl App {
         let mut results = Vec::new();
 
         for (repo_index, repo) in self.repos.iter().enumerate() {
-            for (task_index, (task_dir, task)) in repo.tasks.iter().enumerate() {
+            for (task_index, loaded) in repo.tasks.iter().enumerate() {
                 if results.len() >= MAX_RESULTS {
                     break;
                 }
+
+                let task = &loaded.state;
+                let task_dir = &loaded.dir;
 
                 // Check structured fields first
                 if let Some(source) = Self::match_task_fields(task, &query) {
@@ -971,6 +990,11 @@ impl App {
                         description: task.description.clone(),
                         match_source: source,
                     });
+                    continue;
+                }
+
+                // Archived tasks have no files on disk to search
+                if loaded.archived {
                     continue;
                 }
 

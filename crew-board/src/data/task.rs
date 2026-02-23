@@ -1,6 +1,51 @@
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// A loaded task that may be live (on disk) or archived (deleted from disk).
+#[derive(Debug, Clone)]
+pub struct LoadedTask {
+    pub dir: PathBuf,
+    pub state: TaskState,
+    /// true if this task was reconstructed from the registry, gap detection,
+    /// or metadata.json fallback (no full workflow state)
+    pub archived: bool,
+    /// Jira key from metadata.json (external setup scripts)
+    pub jira_key: Option<String>,
+}
+
+/// Lightweight metadata written by external setup scripts.
+/// Different schema from state.json — used as fallback when state.json is missing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskMetadata {
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub jira_key: String,
+    #[serde(default)]
+    pub branch_name: String,
+    #[serde(default)]
+    pub base_branch: String,
+    #[serde(default)]
+    pub worktree_path: String,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// An entry in the append-only .tasks/.registry.jsonl file.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RegistryEntry {
+    pub task_id: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub created_at: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[allow(dead_code)]
@@ -310,10 +355,57 @@ pub fn parse_decisions(decisions: &[serde_json::Value]) -> Vec<HumanDecision> {
         .collect()
 }
 
-/// Load all tasks from a .tasks/ directory.
+/// Load the append-only registry file (.tasks/.registry.jsonl).
+/// Returns a map from task_id to registry entry.
+pub fn load_registry(tasks_dir: &Path) -> HashMap<String, RegistryEntry> {
+    let registry_path = tasks_dir.join(".registry.jsonl");
+    let content = match std::fs::read_to_string(&registry_path) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<RegistryEntry>(line) {
+            map.insert(entry.task_id.clone(), entry);
+        }
+    }
+    map
+}
+
+/// Append a registry entry when a new task is created.
+pub fn append_to_registry(tasks_dir: &Path, task_id: &str, description: &str, branch: &str) {
+    use std::io::Write;
+    let registry_path = tasks_dir.join(".registry.jsonl");
+    let entry = RegistryEntry {
+        task_id: task_id.to_string(),
+        description: description.to_string(),
+        branch: branch.to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(registry_path)
+    {
+        if let Ok(json) = serde_json::to_string(&entry) {
+            let _ = writeln!(file, "{}", json);
+        }
+    }
+}
+
+/// Load all tasks from a .tasks/ directory, including archived (deleted) tasks.
 /// Silently skips tasks with malformed state.json.
-pub fn load_tasks(tasks_dir: &Path) -> Vec<(PathBuf, TaskState)> {
+/// Returns tasks sorted by task_id, including placeholder entries for
+/// task IDs that existed in the registry but whose directories are gone.
+pub fn load_tasks(tasks_dir: &Path) -> Vec<LoadedTask> {
+    let re = regex::Regex::new(r"^TASK_(\d+)$").unwrap();
     let mut tasks = Vec::new();
+    let mut on_disk_nums: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    // 1. Load all on-disk tasks (existing logic)
     let entries = match std::fs::read_dir(tasks_dir) {
         Ok(e) => e,
         Err(_) => return tasks,
@@ -323,8 +415,36 @@ pub fn load_tasks(tasks_dir: &Path) -> Vec<(PathBuf, TaskState)> {
         if !path.is_dir() {
             continue;
         }
+        // Track task number
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if let Some(caps) = re.captures(name) {
+                if let Ok(num) = caps[1].parse::<u32>() {
+                    on_disk_nums.insert(num);
+                }
+            }
+        }
         let state_file = path.join("state.json");
         if !state_file.exists() {
+            // Fallback: try metadata.json (written by external setup scripts)
+            let meta_file = path.join("metadata.json");
+            if meta_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&meta_file) {
+                    if let Ok(meta) = serde_json::from_str::<TaskMetadata>(&content) {
+                        let jira_key = if meta.jira_key.is_empty() {
+                            None
+                        } else {
+                            Some(meta.jira_key.clone())
+                        };
+                        let state = TaskState::from_metadata(&meta);
+                        tasks.push(LoadedTask {
+                            dir: path,
+                            state,
+                            archived: true,
+                            jira_key,
+                        });
+                    }
+                }
+            }
             continue;
         }
         let content = match std::fs::read_to_string(&state_file) {
@@ -332,15 +452,94 @@ pub fn load_tasks(tasks_dir: &Path) -> Vec<(PathBuf, TaskState)> {
             Err(_) => continue,
         };
         match serde_json::from_str::<TaskState>(&content) {
-            Ok(state) => tasks.push((path, state)),
+            Ok(state) => tasks.push(LoadedTask {
+                dir: path,
+                state,
+                archived: false,
+                jira_key: None,
+            }),
             Err(_) => continue,
         }
     }
-    tasks.sort_by(|a, b| a.1.task_id.cmp(&b.1.task_id));
+
+    // 2. Load registry
+    let registry = load_registry(tasks_dir);
+
+    // 3. Find max task number from both sources
+    let max_from_disk = on_disk_nums.iter().copied().max().unwrap_or(0);
+    let max_from_registry = registry
+        .keys()
+        .filter_map(|id| id.strip_prefix("TASK_"))
+        .filter_map(|s| s.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    let max_num = max_from_disk.max(max_from_registry);
+
+    // 4. Fill gaps with archived entries
+    let on_disk_task_ids: std::collections::HashSet<String> =
+        tasks.iter().map(|t| t.state.task_id.clone()).collect();
+
+    for num in 1..=max_num {
+        let task_id = format!("TASK_{:03}", num);
+        if on_disk_task_ids.contains(&task_id) {
+            continue;
+        }
+
+        // Create archived placeholder
+        let mut state = TaskState {
+            task_id: task_id.clone(),
+            ..Default::default()
+        };
+
+        if let Some(reg) = registry.get(&task_id) {
+            state.description = reg.description.clone();
+            state.created_at = reg.created_at.clone();
+            if !reg.branch.is_empty() {
+                state.worktree = Some(WorktreeInfo {
+                    branch: reg.branch.clone(),
+                    ..Default::default()
+                });
+            }
+        } else {
+            state.description = "(deleted)".to_string();
+        }
+
+        tasks.push(LoadedTask {
+            dir: tasks_dir.join(&task_id),
+            state,
+            archived: true,
+            jira_key: None,
+        });
+    }
+
+    // 5. Sort all by task_id
+    tasks.sort_by(|a, b| a.state.task_id.cmp(&b.state.task_id));
     tasks
 }
 
 impl TaskState {
+    /// Create a minimal TaskState from a metadata.json file.
+    pub fn from_metadata(meta: &TaskMetadata) -> Self {
+        let worktree = if !meta.branch_name.is_empty() || !meta.worktree_path.is_empty() {
+            Some(WorktreeInfo {
+                branch: meta.branch_name.clone(),
+                base_branch: meta.base_branch.clone(),
+                path: meta.worktree_path.clone(),
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+
+        TaskState {
+            task_id: meta.task_id.clone(),
+            description: meta.description.clone(),
+            created_at: meta.created_at.clone(),
+            worktree,
+            ..Default::default()
+        }
+    }
+
     /// Returns true if all required phases are complete.
     pub fn is_complete(&self) -> bool {
         const REQUIRED: &[&str] = &[

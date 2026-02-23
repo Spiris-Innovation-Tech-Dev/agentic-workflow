@@ -52,6 +52,7 @@ src/
 - `load_tasks()` and `load_issues()` silently skip malformed entries
 - `.tasks/` symlinks in worktrees are resolved via `canonicalize()`
 - Artifacts (architect.md, developer.md, etc.) are discovered at runtime from the task directory
+- **metadata.json fallback**: When a task dir has no `state.json`, `load_tasks()` tries `metadata.json` (written by external setup scripts with a different schema). `TaskMetadata` struct deserializes it, `TaskState::from_metadata()` maps fields to a minimal TaskState, and the task is marked `archived: true`. The `jira_key` field lives on `LoadedTask` (not `TaskState`) since it's external metadata.
 
 ### Navigation Model
 - Tree view: flattened `Vec<TreeRow>` where `TreeRow` is either `Repo(idx)` or `Task(repo_idx, task_idx)`
@@ -138,6 +139,7 @@ When a popup is open, line 2 shows popup-specific hints instead of the F-key bar
 | Source | Path | Format |
 |--------|------|--------|
 | Task state | `.tasks/TASK_XXX/state.json` | JSON |
+| Task metadata | `.tasks/TASK_XXX/metadata.json` | JSON (fallback when state.json missing) |
 | Task artifacts | `.tasks/TASK_XXX/*.md` | Markdown |
 | Beads issues | `.beads/issues.jsonl` | JSONL (one JSON per line) |
 | Config (global) | `~/.claude/workflow-config.yaml` | YAML |

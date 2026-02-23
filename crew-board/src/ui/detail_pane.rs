@@ -40,8 +40,8 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 // ── Overview (default task detail) ──────────────────────────────────────────
 
 fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, is_focused: bool) {
-    let task = match app.current_task() {
-        Some(t) => t,
+    let loaded = match app.current_loaded_task() {
+        Some(lt) => lt,
         None => {
             let focus_marker = if is_focused { " ◄" } else { "" };
             let block = Block::default()
@@ -53,6 +53,71 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
             return;
         }
     };
+    let task = &loaded.state;
+
+    // Archived task: show deletion banner with whatever info we have
+    if loaded.archived {
+        let mut lines: Vec<Line> = vec![
+            Line::from(vec![Span::styled(
+                task.task_id.as_str(),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "This task has been deleted from disk.",
+                Style::default().fg(Color::Red),
+            )),
+            Line::from(""),
+        ];
+
+        if !task.description.is_empty() && task.description != "(deleted)" {
+            lines.push(Line::from(vec![
+                Span::styled("Description: ", styles::dim_style()),
+                Span::styled(task.description.as_str(), Style::default().fg(Color::White)),
+            ]));
+        }
+        if let Some(ref jira) = loaded.jira_key {
+            lines.push(Line::from(vec![
+                Span::styled("Jira:        ", styles::dim_style()),
+                Span::styled(jira.as_str(), Style::default().fg(Color::Yellow)),
+            ]));
+        }
+        if let Some(ref wt) = task.worktree {
+            if !wt.branch.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::styled("Branch:      ", styles::dim_style()),
+                    Span::raw(wt.branch.as_str()),
+                ]));
+            }
+        }
+        if !task.created_at.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Created:     ", styles::dim_style()),
+                Span::raw(format_timestamp(&task.created_at)),
+            ]));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "No documents or history available for deleted tasks.",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let focus_marker = if is_focused { " ◄" } else { "" };
+        let breadcrumb = format!(" {} > Overview [deleted]{} ", task.task_id, focus_marker);
+        let text = Text::from(lines);
+        let block = Block::default()
+            .title(breadcrumb)
+            .borders(Borders::ALL)
+            .border_style(border_style);
+        let paragraph = Paragraph::new(text)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((app.detail_scroll, 0));
+        frame.render_widget(paragraph, area);
+        return;
+    }
 
     let mut lines: Vec<Line> = Vec::new();
 

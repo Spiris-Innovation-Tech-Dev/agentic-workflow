@@ -34,7 +34,8 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
 
     let mut has_cost_data = false;
-    for (_, task) in &repo.tasks {
+    for loaded in &repo.tasks {
+        let task = &loaded.state;
         // Show estimated cost from workflow mode
         if let Some(ref mode) = task.workflow_mode {
             if !mode.estimated_cost.is_empty() {

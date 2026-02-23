@@ -282,6 +282,9 @@ pub fn create_worktree(
     std::fs::write(&state_file, state_json)
         .map_err(|e| format!("Failed to write state.json: {}", e))?;
 
+    // Append to registry for history tracking (survives directory deletion)
+    crate::data::task::append_to_registry(&tasks_canonical, &task_id, description, &branch_name);
+
     // Ensure worktrees parent directory exists
     std::fs::create_dir_all(&worktree_base)
         .map_err(|e| format!("Failed to create worktrees directory: {}", e))?;

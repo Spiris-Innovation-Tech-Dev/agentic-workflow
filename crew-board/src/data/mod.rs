@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 pub struct RepoData {
     pub name: String,
     pub path: PathBuf,
-    pub tasks: Vec<(PathBuf, task::TaskState)>,
+    pub tasks: Vec<task::LoadedTask>,
     pub issues: Vec<beads::BeadsIssue>,
     pub config_cascade: Vec<config::ConfigLevel>,
 }
@@ -65,6 +65,13 @@ impl RepoData {
     }
 
     pub fn active_task_count(&self) -> usize {
-        self.tasks.iter().filter(|(_, t)| !t.is_complete()).count()
+        self.tasks
+            .iter()
+            .filter(|t| !t.archived && !t.state.is_complete())
+            .count()
+    }
+
+    pub fn archived_task_count(&self) -> usize {
+        self.tasks.iter().filter(|t| t.archived).count()
     }
 }

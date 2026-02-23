@@ -150,6 +150,7 @@ Launches in the task's worktree directory if one exists, otherwise the repo root
 - Worktree info (branch, color scheme, status)
 - Review issues, concerns, human decisions
 - Cost estimates
+- Also reads `metadata.json` as fallback for tasks created by external setup scripts (displays Jira key, branch, description)
 
 ### Task Documents (`.tasks/*/*.md`)
 - Architect analysis, developer plan, reviewer feedback

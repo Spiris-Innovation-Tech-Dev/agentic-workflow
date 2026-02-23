@@ -191,6 +191,30 @@ Exposes project files as MCP resources that agents can read:
 
 **File locking**: `_save_state()` uses `filelock` to prevent concurrent writes. Lock files are `state.json.lock`. See also the Filelock Fallback pattern under Cross-Platform Fallback Patterns below.
 
+### metadata.json Fallback (External Task Setup)
+
+Some repositories use external task setup scripts (not the Python MCP server) that create task directories with a `metadata.json` file instead of `state.json`. This has a different, simpler schema:
+
+```json
+{
+  "jira_key": "SAD-739",
+  "description": "Prisomräkning Leverantörspriser counts wrong",
+  "branch_name": "task/TASK_005",
+  "task_id": "TASK_005",
+  "created_at": "2026-02-12T12:24:36.2024350+01:00",
+  "worktree_path": "..\\visma.administration-worktrees\\TASK_005",
+  "base_branch": "tremendous"
+}
+```
+
+**crew-board handling**: When `load_tasks()` finds a task directory with no `state.json`, it tries `metadata.json` as a fallback. The `TaskMetadata` struct deserializes this schema, and `TaskState::from_metadata()` maps the fields to a minimal `TaskState`:
+- `branch_name` maps to `worktree.branch`
+- `worktree_path` maps to `worktree.path`
+- `base_branch` maps to `worktree.base_branch`
+- `jira_key` is carried on `LoadedTask` (not `TaskState`) as external metadata
+
+Tasks loaded this way are marked `archived: true` since they lack full workflow state. The fallback is silent -- no errors if `metadata.json` is also missing or malformed. See `crew-board/src/data/task.rs` for the implementation.
+
 ### Agent Output Files
 
 Each agent writes its output to `.tasks/TASK_XXX/<agent>.md`. These accumulate and are passed as context to subsequent agents.

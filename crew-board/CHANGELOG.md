@@ -3,6 +3,33 @@
 All notable changes to crew-board are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-02-23
+
+### Added
+- **Archived task support** — deleted tasks now appear in the tree view with a
+  `✗` marker and `[deleted]` label instead of silently disappearing
+- **Gap detection** — task IDs between 1 and the highest known ID that are
+  missing from disk are filled in as archived placeholders
+- **`.registry.jsonl`** — append-only registry in `.tasks/` records task
+  metadata at creation time; used to enrich archived task display with
+  description and branch info
+- **`metadata.json` fallback** — task directories with no `state.json` but a
+  `metadata.json` (written by external setup scripts) are loaded as archived
+  tasks with description, branch, and Jira key
+- **Jira key display** — archived tasks from `metadata.json` show their Jira
+  key in the task list row and detail pane (yellow text)
+- **`LoadedTask` wrapper** — replaces bare `(PathBuf, TaskState)` tuples with a
+  struct carrying `dir`, `state`, `archived` flag, and optional `jira_key`
+- Repo summary now shows archived task count alongside active/total
+
+### Changed
+- Data layer refactored from `Vec<(PathBuf, TaskState)>` to `Vec<LoadedTask>`
+  across all modules (app, cleanup, cost_view, search, detail_pane, task_list)
+- Archived tasks are excluded from cleanup candidates, search file scanning,
+  document/history views, and terminal launch
+- `active_task_count()` excludes archived tasks; new `archived_task_count()`
+  method added to `RepoData`
+
 ## [0.2.0] - 2026-02-19
 
 ### Added

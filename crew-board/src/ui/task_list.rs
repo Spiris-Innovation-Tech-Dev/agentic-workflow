@@ -48,9 +48,10 @@ fn render_repo_row<'a>(app: &App, ri: usize) -> ListItem<'a> {
     let expanded = app.expanded_repos.contains(&ri);
     let arrow = if expanded { "▼" } else { "▶" };
     let active = repo.active_task_count();
+    let archived = repo.archived_task_count();
     let total = repo.tasks.len();
 
-    let line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!("{} ", arrow),
             Style::default().fg(Color::Yellow),
@@ -62,16 +63,51 @@ fn render_repo_row<'a>(app: &App, ri: usize) -> ListItem<'a> {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  ({}/{} active)", active, total),
+            format!("  ({}/{} active", active, total - archived),
             Style::default().fg(Color::DarkGray),
         ),
-    ]);
+    ];
+    if archived > 0 {
+        spans.push(Span::styled(
+            format!(", {} deleted", archived),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    spans.push(Span::styled(")", Style::default().fg(Color::DarkGray)));
 
+    let line = Line::from(spans);
     ListItem::new(line)
 }
 
 fn render_task_row<'a>(app: &App, ri: usize, ti: usize) -> ListItem<'a> {
-    let (_, task) = &app.repos[ri].tasks[ti];
+    let loaded = &app.repos[ri].tasks[ti];
+    let task = &loaded.state;
+
+    // Archived (deleted) tasks get a distinct dimmed appearance
+    if loaded.archived {
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled("✗ ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                task.task_id.clone(),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM),
+            ),
+            Span::raw(" "),
+            Span::styled("[deleted]", Style::default().fg(Color::DarkGray)),
+        ];
+        if let Some(ref jira) = loaded.jira_key {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                jira.clone(),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        let line = Line::from(spans);
+        return ListItem::new(line);
+    }
+
     let phase_label = task.status_label();
 
     let progress = if task.implementation_progress.total_steps > 0 {

@@ -54,7 +54,11 @@ pub fn list_cleanup_candidates(repo_path: &Path) -> Vec<WorktreeCandidate> {
     let tasks = crate::data::task::load_tasks(&resolved);
     let mut candidates = Vec::new();
 
-    for (_task_dir, task) in &tasks {
+    for loaded in &tasks {
+        if loaded.archived {
+            continue;
+        }
+        let task = &loaded.state;
         let wt = match &task.worktree {
             Some(wt) if wt.status == "active" => wt,
             _ => continue,
