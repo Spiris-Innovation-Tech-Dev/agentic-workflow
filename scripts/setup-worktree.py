@@ -549,10 +549,14 @@ def _shell_quote(s: str, use_powershell: bool = False) -> str:
 
 
 def _powershell_encoded_command(script: str) -> str:
-    """Encode a PowerShell script as a -EncodedCommand argument string.
+    """Encode a PowerShell script as a -EncodedCommand argument fragment.
 
-    Uses Base64-encoded UTF-16LE as recommended by Microsoft. This avoids
-    ALL escaping issues with -Command "..." (no $, backtick, or quote injection).
+    Returns an argument fragment (e.g. '-EncodedCommand <base64>'), NOT a
+    runnable command. Callers must prepend 'powershell.exe' or embed it in
+    a larger command string. Prefer run_native_or_wsl() for general use;
+    this function is for launch commands where encoding avoids shell escaping.
+
+    Uses Base64-encoded UTF-16LE as recommended by Microsoft.
     """
     encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
     return f'-EncodedCommand {encoded}'
@@ -961,10 +965,9 @@ def main():
         ]
         for cmd_parts, warn_only in git_cmds:
             if wsl_use_native:
-                win_cwd = wslpath_w(main_repo_abs)
                 cmd_str = " ".join(f'"{p}"' if " " in p else p for p in cmd_parts)
-                ps_cmd = _powershell_encoded_command(f"cd '{win_cwd}'; {cmd_str}")
-                run_cmd_shell(ps_cmd, dry_run, warn_only=warn_only)
+                run_native_or_wsl(cmd_str, main_repo_abs, wsl_native=True,
+                                  dry_run=dry_run, warn_only=warn_only)
             else:
                 run_cmd(cmd_parts, dry_run, cwd=main_repo_abs, warn_only=warn_only)
     else:
@@ -982,10 +985,8 @@ def main():
 
         git_parts = ["git", "worktree", "add", "-b", branch_name, worktree_path, base_branch]
         if wsl_use_native:
-            win_cwd = wslpath_w(main_repo_abs)
             cmd_str = " ".join(f'"{p}"' if " " in p else p for p in git_parts)
-            ps_cmd = _powershell_encoded_command(f"cd '{win_cwd}'; {cmd_str}")
-            run_cmd_shell(ps_cmd, dry_run)
+            run_native_or_wsl(cmd_str, main_repo_abs, wsl_native=True, dry_run=dry_run)
         else:
             run_cmd(git_parts, dry_run, cwd=main_repo_abs)
 
