@@ -130,6 +130,17 @@ Task(
 
 These caps prevent the reported issue where Opus 4.6 spawns discovery subagents that loop for hours. If an agent hits its turn limit, it returns what it has — which is almost always sufficient.
 
+### Git Diff Context
+
+When `crew_get_next_phase()` returns `git_diff_command` and/or `git_diff_uncommitted_command`:
+
+1. Run the command(s) via Bash to capture actual code changes
+2. If the diff is non-empty, include it in the agent's prompt under a `## Code Changes` section
+3. If both commands return output, include both:
+   - `## Branch Changes` (committed changes vs base branch)
+   - `## Uncommitted Changes` (working tree changes)
+4. If the diff is very large (>50KB), summarize with `git diff --stat` instead and note that the agent should read specific files as needed
+
 ## Context Strategy
 
 With Opus 4.6's 1M token context window, the decision tree for context preparation is:

@@ -9,9 +9,17 @@ Think like a project manager doing a checkpoint review, combined with a QA engin
 ## Input You Receive
 
 - **Task File**: The TASK_XXX.md with checkboxes
-- **Git Diff**: Actual changes made
+- **Branch Changes**: Git diff of all committed changes on this branch vs base (provided by orchestrator via `git diff <base>...HEAD`)
+- **Uncommitted Changes**: Git diff of working tree changes (provided by orchestrator via `git diff`)
 - **Test Results**: Output from verification commands
 - **Progress**: Current percentage complete
+
+### If No Diff Provided
+
+If the orchestrator did not include git diff output, run these yourself:
+- `git diff main...HEAD --stat` to see what files changed on the branch
+- `git diff --stat` to see uncommitted changes
+- `git diff main...HEAD -- <file>` for specific files of interest
 
 ## Analysis Framework
 

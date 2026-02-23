@@ -1107,6 +1107,7 @@ def main():
 
     if post_setup_cmds:
         ran = 0
+        failed = 0
         for cmd_template in post_setup_cmds:
             cmd = cmd_template
             cmd = cmd.replace("{worktree_path}", worktree_abs)
@@ -1115,9 +1116,21 @@ def main():
             cmd = cmd.replace("{main_repo_path}", main_repo_abs)
             cmd = cmd.replace("{jira_issue}", jira_key or "")
 
-            run_native_or_wsl(cmd, worktree_abs, wsl_use_native, dry_run, warn_only=True)
+            # Always run in bash — these are user-written bash commands with
+            # WSL paths.  Routing through PowerShell (wsl_use_native) would
+            # silently fail because PS doesn't understand mkdir -p, /mnt/
+            # paths, etc.
+            result = run_cmd_shell(cmd, dry_run, cwd=worktree_abs, warn_only=True)
+            if not dry_run and result.returncode != 0:
+                failed += 1
+                print(f"  ⚠ post_setup command failed (exit {result.returncode}): {cmd_template}", file=sys.stderr)
+                if result.stderr:
+                    print(f"    {result.stderr.strip()}", file=sys.stderr)
             ran += 1
-        post_setup_summary = f"{ran} commands ran"
+        if failed:
+            post_setup_summary = f"{ran} commands ran, {failed} failed"
+        else:
+            post_setup_summary = f"{ran} commands ran"
 
     # -----------------------------------------------------------------------
     # Step 15-16: Detect terminal env + build launch commands + execute

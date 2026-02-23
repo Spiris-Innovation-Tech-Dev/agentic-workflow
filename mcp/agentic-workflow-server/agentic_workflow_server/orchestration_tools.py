@@ -801,6 +801,13 @@ def _build_phase_action(
         "task_id": task_id,
     }
 
+    # Provide git diff commands for agents that need code change context
+    if agent in ("technical_writer", "feedback"):
+        wt = state.get("worktree", {})
+        base_branch = wt.get("base_branch", "main")
+        result["git_diff_command"] = f"git diff {base_branch}...HEAD"
+        result["git_diff_uncommitted_command"] = "git diff"
+
     if parallel_with:
         result["parallel_with"] = parallel_with
         # Also provide info for the parallel agent
@@ -849,7 +856,12 @@ def _get_context_files(agent: str, state: dict, task_dir: Path) -> list[str]:
             files.append(str(impl_output))
 
     if agent == "technical_writer":
-        for name in ["task.md", "developer.md", "implementer.md"]:
+        # Technical writer needs all prior agent outputs to capture
+        # documentation gaps, patterns, and findings from every phase
+        for name in [
+            "task.md", "architect.md", "developer.md",
+            "reviewer.md", "skeptic.md", "implementer.md", "feedback.md",
+        ]:
             f = task_dir / name
             if f.exists():
                 files.append(str(f))
