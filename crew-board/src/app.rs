@@ -3,6 +3,7 @@ use crate::data::task::{self, Discovery, Interaction, TaskArtifact};
 use crate::data::RepoData;
 use crate::launcher::{self, AiHost, TerminalEnv};
 use crate::worktree;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tui_input::Input;
@@ -164,6 +165,8 @@ pub struct App {
     pub show_help: bool,
     pub last_refresh: std::time::Instant,
     pub detail_scroll: u16,
+    /// Max scroll offset computed during rendering (clamping target).
+    pub detail_scroll_max: Cell<u16>,
 
     // Detail pane state
     pub detail_mode: DetailMode,
@@ -207,6 +210,7 @@ impl App {
             show_help: false,
             last_refresh: std::time::Instant::now(),
             detail_scroll: 0,
+            detail_scroll_max: Cell::new(0),
             detail_mode: DetailMode::Overview,
             cached_artifacts: Vec::new(),
             cached_task_dir: None,
@@ -388,11 +392,21 @@ impl App {
     }
 
     pub fn scroll_detail_down(&mut self) {
-        self.detail_scroll = self.detail_scroll.saturating_add(1);
+        let max = self.detail_scroll_max.get();
+        self.detail_scroll = self.detail_scroll.saturating_add(1).min(max);
     }
 
     pub fn scroll_detail_up(&mut self) {
         self.detail_scroll = self.detail_scroll.saturating_sub(1);
+    }
+
+    pub fn scroll_detail_page_down(&mut self, page_size: u16) {
+        let max = self.detail_scroll_max.get();
+        self.detail_scroll = self.detail_scroll.saturating_add(page_size).min(max);
+    }
+
+    pub fn scroll_detail_page_up(&mut self, page_size: u16) {
+        self.detail_scroll = self.detail_scroll.saturating_sub(page_size);
     }
 
     fn clamp_issue_selection(&mut self) {

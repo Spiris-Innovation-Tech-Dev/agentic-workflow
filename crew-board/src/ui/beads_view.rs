@@ -175,6 +175,7 @@ fn draw_issue_detail(frame: &mut Frame, app: &App, area: Rect) {
         Span::raw(issue.created_at.as_str()),
     ]));
 
+    app.detail_scroll_max.set(super::detail_pane::max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(" Issue Details ")
@@ -183,7 +184,7 @@ fn draw_issue_detail(frame: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }

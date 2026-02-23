@@ -9,6 +9,23 @@ use ratatui::{
     Frame,
 };
 
+/// Estimate the max scroll offset for wrapped content within a bordered area.
+pub(super) fn max_scroll_for(lines: &[Line], area: Rect) -> u16 {
+    let inner_w = area.width.saturating_sub(2) as usize; // borders
+    let inner_h = area.height.saturating_sub(2) as usize;
+    if inner_w == 0 || inner_h == 0 {
+        return 0;
+    }
+    let total: usize = lines
+        .iter()
+        .map(|l| {
+            let w = l.width();
+            if w <= inner_w { 1 } else { w.div_ceil(inner_w) }
+        })
+        .sum();
+    total.saturating_sub(inner_h) as u16
+}
+
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.focus_pane == FocusPane::Right;
     let border_style = if is_focused {
@@ -106,6 +123,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
 
         let focus_marker = if is_focused { " ◄" } else { "" };
         let breadcrumb = format!(" {} > Overview [deleted]{} ", task.task_id, focus_marker);
+        app.detail_scroll_max.set(max_scroll_for(&lines, area));
         let text = Text::from(lines);
         let block = Block::default()
             .title(breadcrumb)
@@ -114,7 +132,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
         let paragraph = Paragraph::new(text)
             .block(block)
             .wrap(Wrap { trim: false })
-            .scroll((app.detail_scroll, 0));
+            .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
         frame.render_widget(paragraph, area);
         return;
     }
@@ -332,6 +350,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
 
     let focus_marker = if is_focused { " ◄" } else { "" };
     let breadcrumb = format!(" {} > Overview{} ", task.task_id, focus_marker);
+    app.detail_scroll_max.set(max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(breadcrumb)
@@ -340,7 +359,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }
@@ -444,6 +463,7 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
 
     let focus_marker = if is_focused { " ◄" } else { "" };
     let breadcrumb = format!(" {} > Documents{} ", task_id, focus_marker);
+    app.detail_scroll_max.set(max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(breadcrumb)
@@ -452,7 +472,7 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }
@@ -528,6 +548,7 @@ fn draw_doc_reader(
         Style::default().fg(Color::DarkGray),
     )));
 
+    app.detail_scroll_max.set(max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(title)
@@ -536,7 +557,7 @@ fn draw_doc_reader(
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }
@@ -1036,6 +1057,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
 
     let focus_marker = if is_focused { " ◄" } else { "" };
     let breadcrumb = format!(" {} > History{} ", task.task_id, focus_marker);
+    app.detail_scroll_max.set(max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(breadcrumb)
@@ -1044,7 +1066,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }
@@ -1140,6 +1162,7 @@ fn draw_repo_summary(
     }
 
     let focus_marker = if is_focused { " ◄" } else { "" };
+    app.detail_scroll_max.set(max_scroll_for(&lines, area));
     let text = Text::from(lines);
     let block = Block::default()
         .title(format!(" Repo Summary{} ", focus_marker))
@@ -1148,7 +1171,7 @@ fn draw_repo_summary(
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((app.detail_scroll, 0));
+        .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
 }

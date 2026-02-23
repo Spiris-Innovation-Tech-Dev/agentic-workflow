@@ -99,6 +99,9 @@ fn run_app(
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
 
+        // Page size for PgUp/PgDn: terminal height minus status bar and borders
+        let page_size = terminal.size().map(|s| s.height.saturating_sub(4).max(1)).unwrap_or(20);
+
         // Poll for events with short timeout for responsive UI
         let timeout = Duration::from_millis(250);
         if event::poll(timeout)? {
@@ -155,8 +158,8 @@ fn run_app(
                             }
                         }
                         KeyCode::Enter => app.detail_open_doc(),
-                        KeyCode::PageDown => app.scroll_detail_down(),
-                        KeyCode::PageUp => app.scroll_detail_up(),
+                        KeyCode::PageDown => app.scroll_detail_page_down(page_size),
+                        KeyCode::PageUp => app.scroll_detail_page_up(page_size),
                         KeyCode::Tab => app.toggle_focus(),
                         KeyCode::Char('q') | KeyCode::F(10) => app.should_quit = true,
                         _ => {}
@@ -220,9 +223,9 @@ fn run_app(
                         // Cycle views
                         (_, KeyCode::Char('`')) => app.next_view(),
 
-                        // Detail scroll
-                        (_, KeyCode::PageDown) => app.scroll_detail_down(),
-                        (_, KeyCode::PageUp) => app.scroll_detail_up(),
+                        // Detail scroll (page at a time)
+                        (_, KeyCode::PageDown) => app.scroll_detail_page_down(page_size),
+                        (_, KeyCode::PageUp) => app.scroll_detail_page_up(page_size),
 
                         _ => {}
                     }
