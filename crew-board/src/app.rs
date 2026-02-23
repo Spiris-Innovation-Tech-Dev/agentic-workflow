@@ -57,6 +57,7 @@ pub struct LaunchPopup {
     pub work_dir: PathBuf,
     pub task_id: String,
     pub task_desc: String,
+    pub color_scheme_index: Option<usize>,
     pub result_msg: Option<String>,
 }
 
@@ -541,8 +542,8 @@ impl App {
 
     /// Open the launch popup for the currently selected task/repo.
     pub fn open_launch_popup(&mut self) {
-        // Determine work directory, task_id, task_desc
-        let (work_dir, task_id, task_desc) = match self.current_tree_row() {
+        // Determine work directory, task_id, task_desc, color_scheme_index
+        let (work_dir, task_id, task_desc, color_idx) = match self.current_tree_row() {
             Some(TreeRow::Task(ri, ti)) => {
                 let repo = &self.repos[*ri];
                 let loaded = &repo.tasks[*ti];
@@ -575,11 +576,12 @@ impl App {
                         }
                     })
                     .unwrap_or_else(|| repo.path.clone());
-                (dir, loaded.dir.to_string_lossy().to_string(), task.description.clone())
+                let color_idx = task.worktree.as_ref().map(|wt| wt.color_scheme_index);
+                (dir, loaded.dir.to_string_lossy().to_string(), task.description.clone(), color_idx)
             }
             Some(TreeRow::Repo(ri)) => {
                 let repo = &self.repos[*ri];
-                (repo.path.clone(), repo.name.clone(), String::new())
+                (repo.path.clone(), repo.name.clone(), String::new(), None)
             }
             None => return,
         };
@@ -596,6 +598,7 @@ impl App {
             work_dir,
             task_id,
             task_desc,
+            color_scheme_index: color_idx,
             result_msg: None,
         });
     }
@@ -651,13 +654,14 @@ impl App {
             LaunchStep::SelectHost => {
                 let terminal = popup.terminals[popup.terminal_cursor];
                 let host = popup.hosts[popup.host_cursor];
+                let cs = popup.color_scheme_index.map(launcher::get_hex_scheme);
                 let result = launcher::launch(
                     terminal,
                     host,
                     &popup.work_dir,
                     &popup.task_id,
                     &popup.task_desc,
-                    None,
+                    cs,
                 );
                 popup.result_msg = Some(match result {
                     Ok(()) => format!("Launched {} in {}", host.label(), terminal.label()),
