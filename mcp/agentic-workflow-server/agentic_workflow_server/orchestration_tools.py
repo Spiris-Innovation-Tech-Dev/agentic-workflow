@@ -30,6 +30,7 @@ from .state_tools import (
     workflow_add_concern,
     _load_state,
     _save_state,
+    _REPO_ROOT,
     WORKFLOW_MODES,
     PHASE_ORDER,
 )
@@ -1201,7 +1202,7 @@ def crew_format_completion(
         worktree_commands = [
             f"git checkout {base_branch}",
             f"git merge {branch}",
-            f"python3 scripts/cleanup-worktree.py {resolved_task_id} --remove-branch",
+            f"python3 {_REPO_ROOT / 'scripts' / 'cleanup-worktree.py'} {resolved_task_id} --remove-branch",
         ]
 
     # Beads commands

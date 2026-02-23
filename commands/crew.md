@@ -6,13 +6,13 @@ You orchestrate the /crew workflow by running the orchestrator script for routin
 
 ### Initialize
 
-Run: `python3 scripts/crew_orchestrator.py init --args "$ARGS"`
+Run: `python3 {__scripts_dir__}/crew_orchestrator.py init --args "$ARGS"`
 
 The script returns JSON with `action` and routing details. Handle by action:
 
 - **start** → Display task summary (ID, mode, optional agents), log the user's task description, then run Context Preparation and Beads Integration (below), then enter Action Loop with `result.next`:
   ```
-  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<original task description>" --type message --phase init
+  python3 {__scripts_dir__}/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<original task description>" --type message --phase init
   ```
 - **resume** → Display `result.resume_state.display_summary`, enter Action Loop with `result.next`
 - **status** → List `.tasks/` contents and show active workflows
@@ -52,7 +52,7 @@ Loop on the returned JSON action from the orchestrator:
    Task(subagent_type: "general-purpose", model: "opus", max_turns: next.max_turns, prompt: "<composed prompt>")
    ```
 6. Save agent output to `.tasks/<task_id>/<agent>.md`
-7. Run: `python3 scripts/crew_orchestrator.py agent-done --task-id <id> --agent <agent> --output-file <path> [--input-tokens N --output-tokens N --model opus]`
+7. Run: `python3 {__scripts_dir__}/crew_orchestrator.py agent-done --task-id <id> --agent <agent> --output-file <path> [--input-tokens N --output-tokens N --model opus]`
 8. If `result.has_blocking_issues` and recommendation is REVISE → inform user, loop continues via `result.next`
 9. Continue loop with `result.next`
 
@@ -63,13 +63,13 @@ Summarize the preceding agent's key findings, then present to user:
 AskUserQuestion: "Based on [Agent]'s analysis: [summary]. How would you like to proceed?"
 Options: Approve, Revise, Restart, Skip
 ```
-After user responds, run: `python3 scripts/crew_orchestrator.py checkpoint-done --task-id <id> --decision <decision> [--notes "..."] --question "<checkpoint summary that was presented>"`
+After user responds, run: `python3 {__scripts_dir__}/crew_orchestrator.py checkpoint-done --task-id <id> --decision <decision> [--notes "..."] --question "<checkpoint summary that was presented>"`
 The `--question` flag logs both the checkpoint question and response to `interactions.jsonl`.
 Continue loop with `result.next`.
 
 #### action: "implement_step" / "verify" / "retry" / "next_step" / "escalate"
 
-Run: `python3 scripts/crew_orchestrator.py impl-action --task-id <id> [--verified true/false] [--error "..."]`
+Run: `python3 {__scripts_dir__}/crew_orchestrator.py impl-action --task-id <id> [--verified true/false] [--error "..."]`
 - **implement_step**: Spawn implementer for `step_id`. If `loop_mode`, run verification after.
 - **verify**: Run verification command, then call impl-action again with result.
 - **retry**: Re-attempt with `should_try_different_approach` guidance. Use `known_solution` if available.
@@ -77,11 +77,11 @@ Run: `python3 scripts/crew_orchestrator.py impl-action --task-id <id> [--verifie
 - **checkpoint**: Present progress checkpoint to user.
 - **escalate**: Pause and ask user for help. Show `reason`. Log the escalation and response:
   ```
-  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role agent --content "<reason>" --type escalation_question --agent implementer --phase implementer
+  python3 {__scripts_dir__}/crew_orchestrator.py log-interaction --task-id <id> --role agent --content "<reason>" --type escalation_question --agent implementer --phase implementer
   ```
   After user responds:
   ```
-  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user response>" --type escalation_response --phase implementer
+  python3 {__scripts_dir__}/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user response>" --type escalation_response --phase implementer
   ```
 - **complete**: Implementation done, continue to next phase (feedback → technical_writer → complete).
 
@@ -89,7 +89,7 @@ Run: `python3 scripts/crew_orchestrator.py impl-action --task-id <id> [--verifie
 
 #### action: "complete"
 
-Run: `python3 scripts/crew_orchestrator.py complete --task-id <id> [--files <comma-separated>]`
+Run: `python3 {__scripts_dir__}/crew_orchestrator.py complete --task-id <id> [--files <comma-separated>]`
 - Display cost summary as formatted table
 - Suggest commit message to user
 - Execute worktree commands based on `worktree_action` (prompt/auto/never)
@@ -125,7 +125,7 @@ If an agent fails or produces invalid output:
 
 When the user provides ad-hoc guidance mid-workflow (outside of checkpoints), log it:
 ```
-python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user input>" --type guidance --phase <current_phase>
+python3 {__scripts_dir__}/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<user input>" --type guidance --phase <current_phase>
 ```
 
 ## Output to User

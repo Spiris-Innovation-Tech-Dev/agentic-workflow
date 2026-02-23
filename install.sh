@@ -59,20 +59,11 @@ if [ -f "$CLAUDE_DIR/commands/workflow.md" ]; then
   fi
 fi
 
-# Copy commands
-echo "Installing commands..."
-cp "$SCRIPT_DIR/commands/"*.md "$CLAUDE_DIR/commands/"
-echo "  ✓ crew.md"
-echo "  ✓ crew-config.md"
-echo "  ✓ crew-resume.md"
-echo "  ✓ crew-checkpoint.md"
-echo "  ✓ crew-cost-report.md"
-
-# Build agents using multi-platform build script
-echo ""
-echo "Installing agents..."
+# Build agents and commands using multi-platform build script
+# (build_claude handles both agents/*.md and commands/*.md with proper substitution)
+echo "Installing agents and commands..."
 python3 "$SCRIPT_DIR/scripts/build-agents.py" claude --output "$HOME/.claude" || {
-  echo "  ✗ Failed to build agents"
+  echo "  ✗ Failed to build agents and commands"
   exit 1
 }
 

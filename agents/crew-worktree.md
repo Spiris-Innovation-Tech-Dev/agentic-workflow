@@ -10,7 +10,7 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
 
 1. **Read config + resolve prompts**: Call `config_get_effective()` MCP tool to get the `worktree` section. If MCP tools are unavailable (e.g., OpenCode subtasks), read the config by running:
    ```
-   python3 scripts/crew_orchestrator.py config
+   python3 {__scripts_dir__}/crew_orchestrator.py config
    ```
    and parse the JSON output for the `worktree` section.
    For each prompt-mode setting (`sync_before_create`, `recycle`, `auto_launch`):
@@ -19,7 +19,7 @@ Arguments: a task description (free text, Jira key, or `--beads ISSUE`).
 
 2. **Run the setup script**:
    ```
-   python3 scripts/setup-worktree.py "<description>" --ai-host {__platform__} [flags] --json
+   python3 {__scripts_dir__}/setup-worktree.py "<description>" --ai-host {__platform__} [flags] --json
    ```
    Where `[flags]` are the CLI flags built in step 1 (only for prompt-mode settings where the user was asked).
 

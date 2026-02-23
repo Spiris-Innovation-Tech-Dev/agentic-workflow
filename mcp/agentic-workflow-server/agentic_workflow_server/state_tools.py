@@ -3799,7 +3799,7 @@ def workflow_cleanup_worktree(
     if remove_branch:
         script_args.append("--remove-branch")
 
-    script_command = f"python3 scripts/cleanup-worktree.py {' '.join(script_args)}"
+    script_command = f"python3 {_REPO_ROOT / 'scripts' / 'cleanup-worktree.py'} {' '.join(script_args)}"
 
     return {
         "success": True,

@@ -198,8 +198,13 @@ pub fn execute_cleanup(
     let script = repo_path
         .join("scripts")
         .join("cleanup-worktree.py");
+    let home_script = dirs::home_dir()
+        .map(|h| h.join(".claude/scripts/cleanup-worktree.py"))
+        .filter(|p| p.exists());
     let script_path = if script.exists() {
         script.to_string_lossy().to_string()
+    } else if let Some(ref hs) = home_script {
+        hs.to_string_lossy().to_string()
     } else {
         "scripts/cleanup-worktree.py".to_string()
     };

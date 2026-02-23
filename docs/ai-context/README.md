@@ -207,7 +207,7 @@ Agent prompts are platform-agnostic markdown. Platform differences are handled b
 
 - **Preambles** (`config/platform-preambles/`) — Prepended to agent prompts per platform
 - **Orchestrators** (`config/platform-orchestrators/`) — Platform-specific orchestration instructions
-- **build-agents.py** — Generates platform-specific agent files with correct frontmatter, tool restrictions, and output paths per platform. Routes global installs to platform-specific directories (`~/.copilot/agents/`, `~/.config/opencode/`, etc.)
+- **build-agents.py** — Generates platform-specific agent and command files with correct frontmatter, tool restrictions, output paths, and template placeholder substitution (`{__platform__}`, `{__platform_dir__}`, `{__scripts_dir__}`). Routes global installs to platform-specific directories (`~/.copilot/agents/`, `~/.config/opencode/`, etc.)
 
 Commands differ by platform:
 - Claude: `/crew "task"`, `/crew-worktree "task"`
@@ -233,10 +233,11 @@ See [cross-platform.md](./cross-platform.md) for detailed platform configuration
 3. Add tests
 4. Update `docs/ai-context/README.md` if user-facing
 
-### Modifying agent behavior
-1. Edit the markdown file in `agents/`
-2. Run `scripts/build-agents.py <platform>` to regenerate platform-specific copies
-3. All output files are auto-generated — don't edit them directly (`.github/agents/`, `~/.copilot/agents/`, `~/.gemini/agents/`, `~/.config/opencode/`, `.opencode/`)
+### Modifying agent or command behavior
+1. Edit the markdown file in `agents/` or `commands/`
+2. Use `{__scripts_dir__}` when referencing helper scripts (e.g., `python3 {__scripts_dir__}/crew_orchestrator.py`) -- never use bare relative paths like `python3 scripts/...`
+3. Run `scripts/build-agents.py <platform>` to regenerate platform-specific copies
+4. All output files are auto-generated -- don't edit them directly (`.github/agents/`, `~/.copilot/agents/`, `~/.gemini/agents/`, `~/.config/opencode/`, `.opencode/`, `~/.claude/commands/`)
 
 ### Adding tests
 - Tests go in `mcp/agentic-workflow-server/tests/`

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-02-23
+
+### Added
+- **`{__scripts_dir__}` template placeholder** — new build-time placeholder for agent and command source files, alongside existing `{__platform__}` and `{__platform_dir__}`. Resolved per platform by `build-agents.py`:
+  - Claude: `~/.claude/scripts` (globally installed alongside agents)
+  - Copilot/Gemini/OpenCode: absolute repo path at build time (e.g., `/home/user/agentic-workflow/scripts`)
+- `SCRIPTS_DIRS` mapping in `build-agents.py` defines per-platform script directory resolution
+- `_assert_no_raw_placeholders()` now checks for un-substituted `{__scripts_dir__}` in built output
+- `commands/*.md` files are now processed through `_substitute_platform()` during `build_claude()` (previously copied raw by `install.sh`)
+- `crew-board` Rust binary adds `~/.claude/scripts/` as fallback path when the repo-relative cleanup script is not found
+
+### Fixed
+- **Script paths break when agents installed globally** — agents and commands referenced `python3 scripts/crew_orchestrator.py` with relative paths that only worked when CWD was the agentic-workflow repo. Since Claude runs commands from whatever project the user is working in, this caused "No such file or directory" errors after global install
+- MCP server (`orchestration_tools.py`, `state_tools.py`) now uses `_REPO_ROOT`-based absolute paths for cleanup script references
+
+### Changed
+- `commands/crew.md` — 9 occurrences of `python3 scripts/` replaced with `python3 {__scripts_dir__}/`
+- `agents/crew-worktree.md` — 2 occurrences replaced
+- `agents/crew-status.md` — 3 occurrences replaced
+- `install.sh` no longer copies `commands/*.md` raw — `build_claude()` handles all command file processing with proper placeholder substitution
+
 ## [0.6.0] - 2026-02-20
 
 ### Added

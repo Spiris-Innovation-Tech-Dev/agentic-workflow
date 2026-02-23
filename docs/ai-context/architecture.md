@@ -272,14 +272,15 @@ Claude and Gemini use fixed output paths regardless of install scope.
 
 #### Template Placeholder Substitution
 
-Agent source files use two template placeholders that `build-agents.py` replaces at build time:
+Agent source files use three template placeholders that `build-agents.py` replaces at build time:
 
 | Placeholder | Purpose | Example Substitution |
 |---|---|---|
 | `{__platform__}` | Platform name | `claude`, `copilot`, `gemini`, `opencode` |
 | `{__platform_dir__}` | Platform config directory | `.claude`, `.copilot`, `.gemini`, `.opencode` |
+| `{__scripts_dir__}` | Absolute path to helper scripts | `~/.claude/scripts`, `/home/user/agentic-workflow/scripts` |
 
-The mapping from platform to directory is defined in `PLATFORM_DIRS` in `build-agents.py`:
+The mappings are defined in `PLATFORM_DIRS` and `SCRIPTS_DIRS` in `build-agents.py`:
 
 ```python
 PLATFORM_DIRS = {
@@ -288,11 +289,20 @@ PLATFORM_DIRS = {
     "gemini": ".gemini",
     "opencode": ".opencode",
 }
+
+SCRIPTS_DIRS = {
+    "claude": "~/.claude/scripts",
+    "copilot": str(REPO_ROOT / "scripts"),   # absolute repo path
+    "gemini": str(REPO_ROOT / "scripts"),    # absolute repo path
+    "opencode": str(REPO_ROOT / "scripts"),  # absolute repo path
+}
 ```
+
+The `{__scripts_dir__}` placeholder ensures that agent/command files can reference helper scripts (e.g., `crew_orchestrator.py`) with absolute paths that work regardless of the user's CWD. For Claude, scripts are installed globally to `~/.claude/scripts/`; for other platforms, they resolve to the repo's absolute path at build time.
 
 #### Build Assertion
 
-After building, `_assert_no_raw_placeholders()` scans all generated `.md` files for any un-substituted `{__platform__}` or `{__platform_dir__}` strings. If any remain, the build fails with exit code 1. This catches missing substitutions before they reach agents at runtime.
+After building, `_assert_no_raw_placeholders()` scans all generated `.md` files for any un-substituted `{__platform__}`, `{__platform_dir__}`, or `{__scripts_dir__}` strings. If any remain, the build fails with exit code 1. This catches missing substitutions before they reach agents at runtime.
 
 #### Per-Agent Tool Restrictions
 
@@ -540,7 +550,7 @@ python3 -m pytest tests/ -k "test_tmux" -v     # By name pattern
 
 6. **`_shell_quote()` not `shlex.quote()`**: For cross-platform safety, use `_shell_quote(s, use_powershell)` from `setup-worktree.py`. On Unix it delegates to `shlex.quote()`. On PowerShell it wraps in single quotes with doubled internal quotes. This distinction matters because PowerShell treats backticks, dollar signs, and double quotes differently from bash.
 
-7. **`{__platform__}` and `{__platform_dir__}` placeholders**: Agent source files in `agents/` and `commands/` use these placeholders. They are substituted by `build-agents.py` at build time. If you see them in built output, the build has a bug — the `_assert_no_raw_placeholders()` check should catch this.
+7. **`{__platform__}`, `{__platform_dir__}`, and `{__scripts_dir__}` placeholders**: Agent source files in `agents/` and `commands/` use these placeholders. They are substituted by `build-agents.py` at build time. `{__scripts_dir__}` resolves to an absolute scripts path per platform (e.g., `~/.claude/scripts` for Claude, absolute repo path for others). If you see any of these in built output, the build has a bug — the `_assert_no_raw_placeholders()` check should catch this.
 
 8. **WSL path performance**: When a worktree lives on `/mnt/` (NTFS via 9P bridge), git and npm operations are extremely slow. The system detects this (`is_wsl()` + path starts with `/mnt/`) and routes commands through PowerShell to use native Windows git. The `fix-worktree-paths.py` script fixes `.git` pointer files for this scenario.
 

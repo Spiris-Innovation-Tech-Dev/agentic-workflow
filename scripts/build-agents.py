@@ -158,11 +158,19 @@ PLATFORM_DIRS = {
     "opencode": ".opencode",  # project-level; global uses .config/opencode/
 }
 
+SCRIPTS_DIRS = {
+    "claude": "~/.claude/scripts",
+    "copilot": str(REPO_ROOT / "scripts"),
+    "gemini": str(REPO_ROOT / "scripts"),
+    "opencode": str(REPO_ROOT / "scripts"),
+}
+
 
 def _substitute_platform(content: str, platform: str) -> str:
-    """Replace {__platform__} and {__platform_dir__} placeholders."""
+    """Replace {__platform__}, {__platform_dir__}, and {__scripts_dir__} placeholders."""
     content = content.replace("{__platform__}", platform)
     content = content.replace("{__platform_dir__}", PLATFORM_DIRS.get(platform, f".{platform}"))
+    content = content.replace("{__scripts_dir__}", SCRIPTS_DIRS.get(platform, "scripts"))
     return content
 
 
@@ -175,7 +183,7 @@ def _assert_no_raw_placeholders(output_dir: Path, platform: str, written_files: 
         written_files: Specific files to check. If None, falls back to scanning
             agents/ and commands/ subdirectories (NOT the entire output_dir tree).
     """
-    raw_patterns = ["{__platform__}", "{__platform_dir__}"]
+    raw_patterns = ["{__platform__}", "{__platform_dir__}", "{__scripts_dir__}"]
     violations = []
 
     if written_files:
@@ -247,6 +255,7 @@ def build_claude(output_dir: Path):
 
     agent_count = 0
     cmd_count = 0
+    command_agent_names: set[str] = set()  # track filenames written as command-agents
     for agent_path in list_agents():
         name = agent_path.stem  # e.g. "architect"
         body = read_file(agent_path)
@@ -256,6 +265,7 @@ def build_claude(output_dir: Path):
             content = _substitute_platform(_claude_command_wrap(name, body), "claude")
             dest = commands_out / agent_path.name
             dest.write_text(content, encoding="utf-8")
+            command_agent_names.add(agent_path.name)
             print(f"  + commands/{agent_path.name}")
             cmd_count += 1
         else:
@@ -269,6 +279,21 @@ def build_claude(output_dir: Path):
             dest.write_text(content, encoding="utf-8")
             print(f"  + agents/{agent_path.name}")
             agent_count += 1
+
+    # Copy main commands from commands/ directory (crew.md, crew-config.md, crew-resume.md)
+    # These are the slash commands that drive the workflow, separate from command-agents.
+    commands_src = REPO_ROOT / "commands"
+    if commands_src.exists():
+        commands_out.mkdir(parents=True, exist_ok=True)
+        for cmd_path in sorted(commands_src.glob("*.md")):
+            # Skip files that were already written as command-agents above
+            if cmd_path.name in command_agent_names:
+                continue
+            content = _substitute_platform(read_file(cmd_path), "claude")
+            dest = commands_out / cmd_path.name
+            dest.write_text(content, encoding="utf-8")
+            print(f"  + commands/{cmd_path.name}")
+            cmd_count += 1
 
     _assert_no_raw_placeholders(output_dir, "claude")
     print(f"\n  {agent_count} agents + {cmd_count} commands written to {output_dir}")

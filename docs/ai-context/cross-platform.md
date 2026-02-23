@@ -266,10 +266,11 @@ Agent source files in `agents/` and `commands/` use template placeholders that `
 |---|---|---|
 | `{__platform__}` | Platform name string | `claude`, `copilot`, `gemini`, `opencode` |
 | `{__platform_dir__}` | Platform config directory | `.claude`, `.copilot`, `.gemini`, `.opencode` |
+| `{__scripts_dir__}` | Absolute path to scripts directory | `~/.claude/scripts`, `/home/user/agentic-workflow/scripts` |
 
 ### Build-Time Substitution
 
-`_substitute_platform(content, platform)` in `build-agents.py` performs the replacement. The mapping is:
+`_substitute_platform(content, platform)` in `build-agents.py` performs the replacement. The mappings are:
 
 ```python
 PLATFORM_DIRS = {
@@ -278,11 +279,22 @@ PLATFORM_DIRS = {
     "gemini": ".gemini",
     "opencode": ".opencode",  # project-level; global uses .config/opencode/
 }
+
+SCRIPTS_DIRS = {
+    "claude": "~/.claude/scripts",
+    "copilot": str(REPO_ROOT / "scripts"),   # absolute repo path at build time
+    "gemini": str(REPO_ROOT / "scripts"),    # absolute repo path at build time
+    "opencode": str(REPO_ROOT / "scripts"),  # absolute repo path at build time
+}
 ```
+
+**Why `{__scripts_dir__}` exists**: Agent and command files reference helper scripts (e.g., `crew_orchestrator.py`, `cleanup-worktree.py`). When agents are installed globally (e.g., to `~/.claude/agents/`), the user's CWD is their project directory, not the agentic-workflow repo. Relative paths like `python3 scripts/crew_orchestrator.py` would fail with "No such file" errors. The placeholder is resolved at build time to an absolute path that works from any CWD.
+
+For Claude, scripts are copied to `~/.claude/scripts/` by `install.sh`, so the placeholder resolves to that global location. For Copilot/Gemini/OpenCode, agents are typically installed from the repo itself, so the placeholder resolves to the repo's absolute `scripts/` path at build time.
 
 ### Build Assertion
 
-After all files are written, `_assert_no_raw_placeholders()` scans every generated `.md` file for un-substituted `{__platform__}` or `{__platform_dir__}` strings. If any remain, the build exits with code 1. This is a safety net to catch cases where agent content uses a placeholder but the substitution code missed it.
+After all files are written, `_assert_no_raw_placeholders()` scans every generated `.md` file for un-substituted `{__platform__}`, `{__platform_dir__}`, or `{__scripts_dir__}` strings. If any remain, the build exits with code 1. This is a safety net to catch cases where agent content uses a placeholder but the substitution code missed it.
 
 ## Cross-Platform Fallback Patterns
 

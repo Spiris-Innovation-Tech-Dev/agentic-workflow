@@ -69,6 +69,7 @@ cd agentic-workflow
 Installs to:
 - Commands → `~/.claude/commands/`
 - Agents → `~/.claude/agents/`
+- Scripts → `~/.claude/scripts/` (helper scripts referenced by agents/commands)
 - Config → `~/.claude/workflow-config.yaml`
 
 ### GitHub Copilot CLI
@@ -103,7 +104,7 @@ Existing config files are backed up with a timestamp.
 
 ### Build Script (Advanced)
 
-The `scripts/build-agents.py` script transforms shared agent sources (`agents/*.md`) into platform-specific formats. Some agents are "command agents" (like `crew-worktree`) — on Claude/OpenCode these become slash commands (`commands/`), on Copilot/Gemini they become regular agents with full tool access.
+The `scripts/build-agents.py` script transforms shared agent sources (`agents/*.md`) and command sources (`commands/*.md`) into platform-specific formats. It substitutes template placeholders (`{__platform__}`, `{__platform_dir__}`, `{__scripts_dir__}`) so that built files reference the correct paths for each platform. Some agents are "command agents" (like `crew-worktree`) -- on Claude/OpenCode these become slash commands (`commands/`), on Copilot/Gemini they become regular agents with full tool access.
 
 ```bash
 python3 scripts/build-agents.py claude                    # Build agents/ + commands/ to ~/.claude/
@@ -1059,7 +1060,8 @@ All uninstallers preserve task state in `.tasks/`.
 | MCP server | `mcp/agentic-workflow-server/` | 56 workflow management tools |
 | Task state | `.tasks/TASK_XXX/` | Phase tracking, discoveries, progress |
 | Config | `workflow-config.yaml` | Checkpoints, models, modes, limits |
-| Build script | `scripts/build-agents.py` | Transforms agents for each platform |
+| Build script | `scripts/build-agents.py` | Transforms agents for each platform (substitutes `{__scripts_dir__}` etc.) |
+| Helper scripts | `scripts/*.py` | Orchestrator, worktree setup, hooks (installed to `~/.claude/scripts/` for Claude) |
 | Preambles | `config/platform-preambles/` | Tool discipline per platform |
 | Orchestrators | `config/platform-orchestrators/` | Orchestration strategy per platform |
 
