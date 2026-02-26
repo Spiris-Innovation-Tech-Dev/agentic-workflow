@@ -146,16 +146,29 @@ pub fn launch(
     let dir = work_dir.to_string_lossy();
     let resume_prompt = format!("/crew resume {}", task_id);
 
+    // Copilot CLI (`gh cs`) does not accept a prompt argument.
+    // The .crew-resume file in the worktree provides context instead.
+    let shell_cmd_for_host = |dir: &str| -> String {
+        match host {
+            AiHost::Copilot => format!(
+                "cd '{}' && {}",
+                shell_escape(dir),
+                host.command(),
+            ),
+            _ => format!(
+                "cd '{}' && {} \"{}\"",
+                shell_escape(dir),
+                host.command(),
+                resume_prompt,
+            ),
+        }
+    };
+
     match terminal {
         TerminalEnv::WindowsTerminalWsl => {
             // wt.exe new-tab: open a new WSL tab in Windows Terminal
             // Explicit cd in the bash command since bash -l may reset cwd
-            let shell_cmd = format!(
-                "cd '{}' && {} \"{}\"",
-                shell_escape(&dir),
-                host.command(),
-                resume_prompt,
-            );
+            let shell_cmd = shell_cmd_for_host(&dir);
             let mut args: Vec<&str> = vec!["new-tab", "--title", task_id];
             // Storage for owned strings that args references
             let tab_color;
@@ -172,11 +185,7 @@ pub fn launch(
                 .map_err(|e| format!("Failed to launch Windows Terminal: {}", e))?;
         }
         TerminalEnv::Tmux => {
-            let shell_cmd = format!(
-                "{} \"{}\"",
-                host.command(),
-                resume_prompt,
-            );
+            let shell_cmd = shell_cmd_for_host(&dir);
             Command::new("tmux")
                 .args([
                     "new-window",
@@ -199,11 +208,10 @@ pub fn launch(
         }
         TerminalEnv::MacOs => {
             // Use osascript to open Terminal.app
+            let shell_cmd = shell_cmd_for_host(&dir);
             let script = format!(
-                "tell application \"Terminal\" to do script \"cd {} && {} '{}'\"",
-                shell_escape(&dir),
-                host.command(),
-                resume_prompt,
+                "tell application \"Terminal\" to do script \"{}\"",
+                shell_cmd,
             );
             Command::new("osascript")
                 .args(["-e", &script])
@@ -212,12 +220,7 @@ pub fn launch(
         }
         TerminalEnv::LinuxGeneric => {
             // Try common terminal emulators
-            let shell_cmd = format!(
-                "cd {} && {} \"{}\"",
-                shell_escape(&dir),
-                host.command(),
-                resume_prompt,
-            );
+            let shell_cmd = shell_cmd_for_host(&dir);
             let terminals_to_try = [
                 ("gnome-terminal", vec!["--", "bash", "-c", &shell_cmd]),
                 ("xterm", vec!["-e", "bash", "-c", &shell_cmd]),

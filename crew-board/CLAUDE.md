@@ -96,9 +96,14 @@ Native Rust reimplementation of the core steps from `scripts/setup-worktree.py`.
 5. Shows result with task ID, branch, directory, color scheme
 6. Optionally launches a color-themed terminal tab
 
-**What it does:** Validates git repo, fetches/pulls, generates task ID (scans `.tasks/`), creates `state.json`, runs `git worktree add`, symlinks `.tasks/`, assigns color scheme.
+**What it does:** Validates git repo, fetches/pulls, generates task ID (scans `.tasks/`), creates `state.json`, runs `git worktree add`, symlinks `.tasks/`, assigns color scheme, writes `.crew-resume` context file (see below).
 
-**What it skips (deferred to AI agent):** Settings patching, dependency install, WSL path fix, post-setup commands, Jira transitions — all handled by the agent on first `/crew resume`.
+**What it skips (deferred to AI agent):** Settings patching, dependency install, WSL path fix, post-setup commands, Jira transitions -- all handled by the agent on first `/crew resume`.
+
+### `.crew-resume` Context File
+At worktree creation, both `worktree.rs` and `scripts/setup-worktree.py` write a `.crew-resume` file to the worktree root. This file contains task_id, description, main_repo path, tasks_path, base_branch, ai_host, and the resume command. It is `.gitignore`d and never committed.
+
+**Purpose:** AI hosts that cannot accept CLI prompt arguments (notably Copilot via `gh cs`) read this file to discover what task to resume. The launcher (`launcher.rs`) omits the prompt argument for Copilot and relies on `.crew-resume` instead. Claude, Gemini, and OpenCode still receive the resume prompt as a CLI argument.
 
 The worktree is created at `../{repo-name}-worktrees/TASK_XXX` with branch `crew/{slugified-description}`.
 

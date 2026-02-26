@@ -359,8 +359,17 @@ Claude Code supports lifecycle hooks that run scripts at specific trigger points
 2. `workflow_create_worktree()` records metadata, returns git commands
 3. Agent executes git commands (worktree add, branch create)
 4. Agent runs setup (symlink/junction .tasks, copy settings, pre-authorize permissions, fix paths, install deps)
-5. `workflow_get_launch_command()` generates platform-specific launch command
-6. Agent executes the launch command
+5. A `.crew-resume` context file is written to the worktree root (see below)
+6. `workflow_get_launch_command()` generates platform-specific launch command
+7. Agent executes the launch command
+
+### `.crew-resume` Context File
+
+Both `crew-board/src/worktree.rs` and `scripts/setup-worktree.py` write a `.crew-resume` file to the worktree root at creation time. The file is `.gitignore`d and never committed.
+
+**Contents:** task_id, description, main_repo path, tasks_path, base_branch, ai_host, created_at timestamp, and the platform-specific resume command.
+
+**Purpose:** AI hosts that cannot accept CLI prompt arguments (notably Copilot via `gh cs`) read this file to discover what task to resume. The launcher omits the prompt argument for Copilot and relies on `.crew-resume` instead. Claude, Gemini, and OpenCode still receive the resume prompt as a CLI argument, but `.crew-resume` serves as a fallback for any host.
 
 ### Terminal Detection Order (`detect_terminal_env()`)
 
