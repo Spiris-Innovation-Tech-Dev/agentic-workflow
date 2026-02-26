@@ -290,7 +290,7 @@ SCRIPTS_DIRS = {
 
 **Why `{__scripts_dir__}` exists**: Agent and command files reference helper scripts (e.g., `crew_orchestrator.py`, `cleanup-worktree.py`). When agents are installed globally (e.g., to `~/.claude/agents/`), the user's CWD is their project directory, not the agentic-workflow repo. Relative paths like `python3 scripts/crew_orchestrator.py` would fail with "No such file" errors. The placeholder is resolved at build time to an absolute path that works from any CWD.
 
-For Claude, scripts are copied to `~/.claude/scripts/` by `install.sh`, so the placeholder resolves to that global location. For Copilot/Gemini/OpenCode, agents are typically installed from the repo itself, so the placeholder resolves to the repo's absolute `scripts/` path at build time.
+For Claude, scripts are copied to `~/.claude/scripts/` by `install.sh`, so the placeholder resolves to that global location. For Copilot, scripts are bundled alongside agents (`.github/scripts/` for project-level, `~/.copilot/scripts/` for global) so agents work when deployed to any repo. For Gemini/OpenCode, the placeholder resolves to the agentic-workflow repo's absolute `scripts/` path at build time.
 
 ### Build Assertion
 

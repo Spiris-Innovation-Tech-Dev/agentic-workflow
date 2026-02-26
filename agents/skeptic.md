@@ -156,6 +156,16 @@ Assumptions that might not hold:
 [ ] **PROCEED** - Acceptable risk, good enough for production
 [x] **PROCEED WITH CAUTIONS** - Add specific mitigations before deploying
 [ ] **HOLD** - Too risky without significant changes
+
+<!-- STRUCTURED OUTPUT FOR ORCHESTRATOR -->
+<!-- Include concerns JSON so they can be tracked and surfaced at checkpoints -->
+<concerns>
+[
+  {"severity": "critical", "description": "Race condition if user submits form twice rapidly"},
+  {"severity": "high", "description": "No timeout on external API call in Step 3.2"},
+  {"severity": "medium", "description": "Missing input validation for edge case X"}
+]
+</concerns>
 ```
 
 ## Skeptic Principles

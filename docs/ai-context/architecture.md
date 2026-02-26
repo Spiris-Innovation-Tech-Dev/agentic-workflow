@@ -298,7 +298,7 @@ SCRIPTS_DIRS = {
 }
 ```
 
-The `{__scripts_dir__}` placeholder ensures that agent/command files can reference helper scripts (e.g., `crew_orchestrator.py`) with absolute paths that work regardless of the user's CWD. For Claude, scripts are installed globally to `~/.claude/scripts/`; for other platforms, they resolve to the repo's absolute path at build time.
+The `{__scripts_dir__}` placeholder ensures that agent/command files can reference helper scripts (e.g., `crew_orchestrator.py`) with paths that work regardless of the user's CWD. For Claude, scripts are installed globally to `~/.claude/scripts/`. For Copilot, scripts are bundled alongside agents (`.github/scripts/`) so they work when deployed to any repo. For Gemini/OpenCode, they resolve to the agentic-workflow repo's absolute path at build time.
 
 #### Build Assertion
 

@@ -676,11 +676,15 @@ def crew_get_next_phase(
         # Current phase still running - check for checkpoint
         checkpoint = _get_checkpoint_for_phase(current_phase, config)
         if checkpoint:
+            concerns = state.get("concerns", [])
+            unaddressed = [c for c in concerns if not c.get("addressed_by")]
             return {
                 "action": "checkpoint",
                 "phase": current_phase,
                 "checkpoint_name": checkpoint,
-                "task_id": state.get("task_id")
+                "task_id": state.get("task_id"),
+                "unaddressed_concerns": unaddressed,
+                "concerns_count": len(unaddressed),
             }
         # Phase output not yet processed - orchestrator should process it
         return {
@@ -965,12 +969,15 @@ def crew_parse_agent_output(
             extracted["concerns"] = concerns
             for concern in concerns:
                 if task_id and isinstance(concern, dict):
+                    severity = concern.get("severity", "medium").lower()
                     workflow_add_concern(
                         source=agent,
-                        severity=concern.get("severity", "medium"),
+                        severity=severity,
                         description=concern.get("description", str(concern)),
                         task_id=task_id
                     )
+                    if severity == "critical":
+                        has_blocking_issues = True
                 elif task_id and isinstance(concern, str):
                     workflow_add_concern(
                         source=agent,
@@ -981,10 +988,20 @@ def crew_parse_agent_output(
         except json.JSONDecodeError:
             extracted["concerns_parse_error"] = concerns_match.group(1)
 
+    # Include unaddressed concerns in the return for display at checkpoints
+    unaddressed_concerns = []
+    if task_id:
+        task_dir = find_task_dir(task_id)
+        if task_dir:
+            state = _load_state(task_dir)
+            all_concerns = state.get("concerns", [])
+            unaddressed_concerns = [c for c in all_concerns if not c.get("addressed_by")]
+
     return {
         "agent": agent,
         "extracted": extracted,
         "has_blocking_issues": has_blocking_issues,
+        "unaddressed_concerns": unaddressed_concerns,
         "task_id": task_id
     }
 

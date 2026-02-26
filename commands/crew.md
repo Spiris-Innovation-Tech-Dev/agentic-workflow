@@ -53,14 +53,24 @@ Loop on the returned JSON action from the orchestrator:
    ```
 6. Save agent output to `.tasks/<task_id>/<agent>.md`
 7. Run: `python3 {__scripts_dir__}/crew_orchestrator.py agent-done --task-id <id> --agent <agent> --output-file <path> [--input-tokens N --output-tokens N --model opus]`
-8. If `result.has_blocking_issues` and recommendation is REVISE → inform user, loop continues via `result.next`
-9. Continue loop with `result.next`
+8. If `result.parse_result.unaddressed_concerns` is non-empty, display them to the user:
+   ```
+   **Unaddressed Concerns ({count}):**
+   - [{severity}] ({source}): {description}
+   ```
+9. If `result.has_blocking_issues` and recommendation is REVISE → inform user, loop continues via `result.next`
+10. Continue loop with `result.next`
 
 #### action: "checkpoint"
 
-Summarize the preceding agent's key findings, then present to user:
+Summarize the preceding agent's key findings. If `result.unaddressed_concerns` is non-empty, display each concern:
 ```
-AskUserQuestion: "Based on [Agent]'s analysis: [summary]. How would you like to proceed?"
+**Unaddressed Concerns ({concerns_count}):**
+- [{severity}] ({source}): {description}
+```
+Then present to user:
+```
+AskUserQuestion: "Based on [Agent]'s analysis: [summary]. [N unaddressed concern(s) require attention.] How would you like to proceed?"
 Options: Approve, Revise, Restart, Skip
 ```
 After user responds, run: `python3 {__scripts_dir__}/crew_orchestrator.py checkpoint-done --task-id <id> --decision <decision> [--notes "..."] --question "<checkpoint summary that was presented>"`

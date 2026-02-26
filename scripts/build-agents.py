@@ -160,17 +160,30 @@ PLATFORM_DIRS = {
 
 SCRIPTS_DIRS = {
     "claude": "~/.claude/scripts",
-    "copilot": str(REPO_ROOT / "scripts"),
+    "copilot": ".github/scripts",   # overridden dynamically in build_copilot
     "gemini": str(REPO_ROOT / "scripts"),
     "opencode": str(REPO_ROOT / "scripts"),
 }
 
+# Scripts that need to be bundled alongside agents for platforms that don't
+# install globally (Copilot, Gemini, OpenCode).  Only scripts referenced by
+# agent/command markdown via {__scripts_dir__} need to be here.
+BUNDLED_SCRIPTS = [
+    "setup-worktree.py",
+    "cleanup-worktree.py",
+    "crew_orchestrator.py",
+    "fix-worktree-paths.py",
+    "shared_utils.py",
+    "workflow_state.py",
+    "context_preparation.py",
+]
 
-def _substitute_platform(content: str, platform: str) -> str:
+
+def _substitute_platform(content: str, platform: str, *, scripts_dir: str | None = None) -> str:
     """Replace {__platform__}, {__platform_dir__}, and {__scripts_dir__} placeholders."""
     content = content.replace("{__platform__}", platform)
     content = content.replace("{__platform_dir__}", PLATFORM_DIRS.get(platform, f".{platform}"))
-    content = content.replace("{__scripts_dir__}", SCRIPTS_DIRS.get(platform, "scripts"))
+    content = content.replace("{__scripts_dir__}", scripts_dir or SCRIPTS_DIRS.get(platform, "scripts"))
     return content
 
 
@@ -323,6 +336,56 @@ def _copilot_frontmatter(name: str, description: str, *, is_orchestrator: bool =
     return "\n".join(lines) + "\n"
 
 
+def _is_wsl() -> bool:
+    """Detect if running inside WSL."""
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+def _windows_home() -> Path | None:
+    """Return the Windows user home directory when running from WSL."""
+    if not _is_wsl():
+        return None
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["cmd.exe", "/C", "echo %USERPROFILE%"],
+            capture_output=True, text=True, timeout=5,
+        )
+        win_path = result.stdout.strip()
+        if win_path and ":" in win_path:
+            # Convert C:\Users\Name → /mnt/c/Users/Name
+            drive = win_path[0].lower()
+            rest = win_path[2:].replace("\\", "/")
+            return Path(f"/mnt/{drive}{rest}")
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
+def _user_home() -> Path:
+    """Return the user home directory, preferring Windows home on WSL."""
+    return _windows_home() or Path.home()
+
+
+def _is_home_dir(output_dir: Path) -> bool:
+    """Check if output_dir is a user home directory (WSL or Windows).
+
+    On WSL, Path.home() returns /home/<user> but the user may pass
+    /mnt/c/Users/<user> (Windows home).  Detect both cases.
+    """
+    if output_dir == Path.home():
+        return True
+    # WSL: check if it looks like a Windows home directory
+    parts = output_dir.parts
+    # /mnt/c/Users/<name> or /mnt/d/Users/<name>
+    if len(parts) >= 4 and parts[1] == "mnt" and parts[3].lower() == "users":
+        return True
+    return False
+
+
 def _copilot_agents_dir(output_dir: Path) -> Path:
     """Return the Copilot agents directory.
 
@@ -331,19 +394,34 @@ def _copilot_agents_dir(output_dir: Path) -> Path:
     (global install), return output_dir / .copilot / agents.  Otherwise
     (project-level install), return output_dir / .github / agents.
     """
-    if output_dir == Path.home():
+    if _is_home_dir(output_dir):
         return output_dir / ".copilot" / "agents"
     return output_dir / ".github" / "agents"
+
+
+def _copilot_scripts_dir(output_dir: Path) -> Path:
+    """Return the Copilot scripts directory (mirrors agents dir layout)."""
+    if _is_home_dir(output_dir):
+        return output_dir / ".copilot" / "scripts"
+    return output_dir / ".github" / "scripts"
 
 
 def build_copilot(output_dir: Path):
     """Build agents in Copilot format: .agent.md files with YAML frontmatter.
 
-    Project-level: .github/agents/crew-*.agent.md
-    User-level (output==$HOME): ~/.copilot/agents/crew-*.agent.md
+    Project-level: .github/agents/crew-*.agent.md  + .github/scripts/
+    User-level (output==$HOME): ~/.copilot/agents/crew-*.agent.md + ~/.copilot/scripts/
     """
     agents_out = _copilot_agents_dir(output_dir)
     agents_out.mkdir(parents=True, exist_ok=True)
+
+    # Compute scripts_dir so agents work from any repo.
+    # Global install: ~/.copilot/scripts  →  use absolute tilde path
+    # Project install: .github/scripts    →  relative to repo root
+    if _is_home_dir(output_dir):
+        scripts_dir = "~/.copilot/scripts"
+    else:
+        scripts_dir = ".github/scripts"
 
     preamble_path = PREAMBLES_DIR / "copilot.md"
     preamble = read_file(preamble_path) if preamble_path.exists() else ""
@@ -356,6 +434,7 @@ def build_copilot(output_dir: Path):
         orch_body = read_file(orchestrator_path)
         desc = AGENT_DESCRIPTIONS.get("orchestrator", "Workflow Orchestrator")
         orch_content = _copilot_frontmatter("orchestrator", desc, is_orchestrator=True) + "\n" + orch_body
+        orch_content = _substitute_platform(orch_content, "copilot", scripts_dir=scripts_dir)
         dest = agents_out / "crew.agent.md"
         dest.write_text(orch_content, encoding="utf-8")
         written_files.append(dest)
@@ -377,12 +456,26 @@ def build_copilot(output_dir: Path):
         frontmatter = _copilot_frontmatter(name, desc, is_orchestrator=is_command)
 
         out_name = _agent_output_name(name)
-        content = _substitute_platform(frontmatter + "\n" + preamble + "\n" + body, "copilot")
+        content = _substitute_platform(frontmatter + "\n" + preamble + "\n" + body, "copilot",
+                                       scripts_dir=scripts_dir)
         dest = agents_out / f"{out_name}.agent.md"
         dest.write_text(content, encoding="utf-8")
         written_files.append(dest)
         print(f"  + {out_name}.agent.md")
         count += 1
+
+    # Bundle helper scripts so agents can call them from any repo
+    scripts_out = _copilot_scripts_dir(output_dir)
+    scripts_out.mkdir(parents=True, exist_ok=True)
+    scripts_copied = 0
+    for script_name in BUNDLED_SCRIPTS:
+        src = REPO_ROOT / "scripts" / script_name
+        if src.exists():
+            dest = scripts_out / script_name
+            dest.write_text(read_file(src), encoding="utf-8")
+            scripts_copied += 1
+    if scripts_copied:
+        print(f"\n  {scripts_copied} scripts bundled to {scripts_out}")
 
     _assert_no_raw_placeholders(agents_out, "copilot", written_files=written_files)
     print(f"\n  {count} agents + orchestrator written to {agents_out}")
@@ -740,6 +833,12 @@ def main():
         help="Output directory (default depends on platform)",
     )
     parser.add_argument(
+        "--global",
+        dest="global_install",
+        action="store_true",
+        help="Install globally to user home (auto-detects Windows home on WSL)",
+    )
+    parser.add_argument(
         "--list-platforms",
         action="store_true",
         help="List available platforms and exit",
@@ -759,7 +858,12 @@ def main():
         sys.exit(1)
 
     platform = PLATFORMS[args.platform]
-    output_dir = args.output or platform["default_output"]()
+    if args.global_install:
+        output_dir = _user_home()
+    elif args.output:
+        output_dir = args.output
+    else:
+        output_dir = platform["default_output"]()
 
     if not AGENTS_DIR.exists():
         print(f"Error: agents directory not found: {AGENTS_DIR}", file=sys.stderr)
