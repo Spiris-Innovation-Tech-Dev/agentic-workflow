@@ -32,8 +32,8 @@ src/
 │   └── config.rs    # Config cascade: global → project → task levels
 └── ui/
     ├── mod.rs        # Root layout: main content + status bar + popup overlay
-    ├── task_list.rs  # Left pane: tree view with repo/task rows
-    ├── detail_pane.rs# Right pane: overview, doc list, doc reader, history
+    ├── task_list.rs  # Left pane: tree view with repo/task rows + vertical scrollbar
+    ├── detail_pane.rs# Right pane: overview, doc list, doc reader, history + vertical scrollbar
     ├── beads_view.rs # View 2: issues list + detail
     ├── config_view.rs# View 3: config cascade display
     ├── cost_view.rs  # View 4: cost summary from workflow state
@@ -58,6 +58,9 @@ src/
 - Tree view: flattened `Vec<TreeRow>` where `TreeRow` is either `Repo(idx)` or `Task(repo_idx, task_idx)`
 - `expanded_repos: HashSet<usize>` tracks which repos are open
 - `rebuild_tree()` must be called after any expand/collapse or data refresh
+- Tree cursor clamps at boundaries (does not wrap around)
+- Navigation methods: `tree_down()`, `tree_up()`, `tree_page_down(page_size)`, `tree_page_up(page_size)`, `tree_expand()`, `tree_collapse()`
+- Key bindings: Up/Down/j/k for single step, PgUp/PgDn for page, Right/l to expand repo, Left to collapse repo
 
 ### Detail Pane Modes
 ```
@@ -119,6 +122,8 @@ Central style helpers in `styles.rs` ensure visual consistency:
 - `hint_style()` — dim gray for keybinding hints
 
 Pane focus is indicated by bold border + `◄` marker in the title. Detail pane titles show breadcrumb trails (e.g. `TASK_003 > Documents > Architect Analysis`).
+
+Vertical scrollbars appear in both panes when content overflows the visible area. Uses ratatui's `Scrollbar` widget with `ScrollbarOrientation::VerticalRight`. The detail pane uses a shared `render_detail_scrollbar()` helper called from each rendering function.
 
 ### Status Bar (Norton Commander-style)
 Two-line status bar:

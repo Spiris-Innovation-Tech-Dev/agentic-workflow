@@ -10,6 +10,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   the first item now stops (clamps) instead of wrapping around to the other end
 
 ### Added
+- **Arrow key expand/collapse** — Right arrow (or `l`) expands a repo node,
+  Left arrow collapses it
+- **PgUp/PgDn tree paging** — page through the task list a screenful at a time,
+  clamped to top/bottom like the arrow keys
 - **Vertical scrollbars** — both left pane (task list) and right pane (detail,
   documents, history, repo summary) now show a scrollbar when content overflows
   the visible area
