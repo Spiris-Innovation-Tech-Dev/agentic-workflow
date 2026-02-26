@@ -315,6 +315,31 @@ impl App {
         }
     }
 
+    pub fn tree_page_down(&mut self, page_size: u16) {
+        if !self.tree_rows.is_empty() {
+            let last = self.tree_rows.len() - 1;
+            let new_cursor = (self.tree_cursor + page_size as usize).min(last);
+            if new_cursor != self.tree_cursor {
+                self.tree_cursor = new_cursor;
+                self.detail_scroll = 0;
+                self.detail_mode = DetailMode::Overview;
+                self.ensure_artifacts();
+            }
+        }
+    }
+
+    pub fn tree_page_up(&mut self, page_size: u16) {
+        if !self.tree_rows.is_empty() && self.tree_cursor > 0 {
+            let new_cursor = self.tree_cursor.saturating_sub(page_size as usize);
+            if new_cursor != self.tree_cursor {
+                self.tree_cursor = new_cursor;
+                self.detail_scroll = 0;
+                self.detail_mode = DetailMode::Overview;
+                self.ensure_artifacts();
+            }
+        }
+    }
+
     /// Toggle expand/collapse on a repo row, or select a task row.
     pub fn tree_toggle(&mut self) {
         if let Some(row) = self.tree_rows.get(self.tree_cursor).cloned() {
@@ -330,6 +355,26 @@ impl App {
                 TreeRow::Task(_, _) => {
                     // Task row: toggle is a no-op (already selected for detail view)
                 }
+            }
+        }
+    }
+
+    /// Expand the current repo node (no-op if already expanded or on a task row).
+    pub fn tree_expand(&mut self) {
+        if let Some(TreeRow::Repo(ri)) = self.tree_rows.get(self.tree_cursor).cloned() {
+            if !self.expanded_repos.contains(&ri) {
+                self.expanded_repos.insert(ri);
+                self.rebuild_tree();
+            }
+        }
+    }
+
+    /// Collapse the current repo node (no-op if already collapsed or on a task row).
+    pub fn tree_collapse(&mut self) {
+        if let Some(TreeRow::Repo(ri)) = self.tree_rows.get(self.tree_cursor).cloned() {
+            if self.expanded_repos.contains(&ri) {
+                self.expanded_repos.remove(&ri);
+                self.rebuild_tree();
             }
         }
     }

@@ -206,10 +206,14 @@ fn run_app(
                         // Tree: expand/collapse repo
                         (_, KeyCode::Enter) => app.tree_toggle(),
                         (_, KeyCode::Char(' ')) => app.tree_toggle(),
+                        (_, KeyCode::Right) | (_, KeyCode::Char('l')) => app.tree_expand(),
+                        (_, KeyCode::Left) => app.tree_collapse(),
 
                         // Item navigation
                         (_, KeyCode::Up) | (_, KeyCode::Char('k')) => app.prev_item(),
                         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.next_item(),
+                        (_, KeyCode::PageDown) => app.tree_page_down(page_size),
+                        (_, KeyCode::PageUp) => app.tree_page_up(page_size),
 
                         // Pane focus
                         (_, KeyCode::Tab) => app.toggle_focus(),
@@ -222,10 +226,6 @@ fn run_app(
 
                         // Cycle views
                         (_, KeyCode::Char('`')) => app.next_view(),
-
-                        // Detail scroll (page at a time)
-                        (_, KeyCode::PageDown) => app.scroll_detail_page_down(page_size),
-                        (_, KeyCode::PageUp) => app.scroll_detail_page_up(page_size),
 
                         _ => {}
                     }
