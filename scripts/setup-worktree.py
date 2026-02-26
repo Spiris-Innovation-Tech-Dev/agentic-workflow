@@ -597,16 +597,12 @@ def build_launch_commands(
     safe_prompt = _shell_quote(resume_prompt, use_powershell=use_ps)
     safe_task_id = _shell_quote(task_id, use_powershell=use_ps)
 
-    if ai_host == "copilot":
+    if ai_host in ("copilot", "opencode"):
+        # These hosts don't accept a prompt argument.
+        # The .crew-resume file in the worktree provides context instead.
         cli_with_prompt = cli
-        warnings.append(
-            "Copilot CLI does not support auto-sending prompts. "
-            "After the terminal opens, paste the resume prompt manually."
-        )
     elif ai_host == "gemini":
         cli_with_prompt = f"{cli} -i {safe_prompt}"
-    elif ai_host == "opencode":
-        cli_with_prompt = f"{cli} run {safe_prompt}"
     else:
         cli_with_prompt = f"{cli} {safe_prompt}"
 

@@ -146,11 +146,12 @@ pub fn launch(
     let dir = work_dir.to_string_lossy();
     let resume_prompt = format!("/crew resume {}", task_id);
 
-    // Copilot CLI (`gh cs`) does not accept a prompt argument.
+    // Copilot (`gh cs`) and OpenCode don't accept a prompt argument.
     // The .crew-resume file in the worktree provides context instead.
+    // Claude and Gemini accept prompt as CLI argument.
     let shell_cmd_for_host = |dir: &str| -> String {
         match host {
-            AiHost::Copilot => format!(
+            AiHost::Copilot | AiHost::OpenCode => format!(
                 "cd '{}' && {}",
                 shell_escape(dir),
                 host.command(),

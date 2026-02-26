@@ -3961,19 +3961,13 @@ def workflow_get_launch_command(
     safe_task_id = shlex.quote(resolved_task_id)
 
     # Build the CLI invocation per host
-    if ai_host == "copilot":
-        # Copilot CLI doesn't accept prompt args — launch interactive only
+    if ai_host in ("copilot", "opencode"):
+        # These hosts don't accept prompt args.
+        # The .crew-resume file in the worktree provides context instead.
         cli_with_prompt = cli
-        warnings.append(
-            "Copilot CLI does not support auto-sending prompts. "
-            "After the terminal opens, paste the resume prompt manually."
-        )
     elif ai_host == "gemini":
         # gemini -i "prompt" executes prompt then stays interactive
         cli_with_prompt = f"{cli} -i {safe_prompt}"
-    elif ai_host == "opencode":
-        # opencode run "prompt" runs prompt non-interactively
-        cli_with_prompt = f"{cli} run {safe_prompt}"
     else:
         # claude "prompt" starts interactive with the prompt as the first message
         cli_with_prompt = f"{cli} {safe_prompt}"
