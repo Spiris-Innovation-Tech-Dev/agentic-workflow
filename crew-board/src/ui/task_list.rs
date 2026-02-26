@@ -4,7 +4,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, List, ListItem, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
@@ -25,6 +25,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    let items_len = items.len();
     let total_tasks: usize = app.repos.iter().map(|r| r.tasks.len()).sum();
     let focus_marker = if is_focused { " ◄" } else { "" };
     let title = format!(" {} repos, {} tasks{} ", app.repos.len(), total_tasks, focus_marker);
@@ -41,6 +42,20 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let mut state = ListState::default();
     state.select(Some(app.tree_cursor));
     frame.render_stateful_widget(list, area, &mut state);
+
+    // Vertical scrollbar (only when content overflows)
+    let visible_height = area.height.saturating_sub(2) as usize; // subtract borders
+    if items_len > visible_height {
+        let mut scrollbar_state = ScrollbarState::new(items_len)
+            .position(app.tree_cursor)
+            .viewport_content_length(visible_height);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█");
+        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
 }
 
 fn render_repo_row<'a>(app: &App, ri: usize) -> ListItem<'a> {

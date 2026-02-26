@@ -296,20 +296,19 @@ impl App {
     // Tree navigation
     pub fn tree_down(&mut self) {
         if !self.tree_rows.is_empty() {
-            self.tree_cursor = (self.tree_cursor + 1) % self.tree_rows.len();
-            self.detail_scroll = 0;
-            self.detail_mode = DetailMode::Overview;
-            self.ensure_artifacts();
+            let last = self.tree_rows.len() - 1;
+            if self.tree_cursor < last {
+                self.tree_cursor += 1;
+                self.detail_scroll = 0;
+                self.detail_mode = DetailMode::Overview;
+                self.ensure_artifacts();
+            }
         }
     }
 
     pub fn tree_up(&mut self) {
-        if !self.tree_rows.is_empty() {
-            self.tree_cursor = if self.tree_cursor == 0 {
-                self.tree_rows.len() - 1
-            } else {
-                self.tree_cursor - 1
-            };
+        if !self.tree_rows.is_empty() && self.tree_cursor > 0 {
+            self.tree_cursor -= 1;
             self.detail_scroll = 0;
             self.detail_mode = DetailMode::Overview;
             self.ensure_artifacts();

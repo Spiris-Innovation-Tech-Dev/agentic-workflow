@@ -3,6 +3,17 @@
 All notable changes to crew-board are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-02-26
+
+### Fixed
+- **Tree navigation no longer wraps** — pressing Down at the last item or Up at
+  the first item now stops (clamps) instead of wrapping around to the other end
+
+### Added
+- **Vertical scrollbars** — both left pane (task list) and right pane (detail,
+  documents, history, repo summary) now show a scrollbar when content overflows
+  the visible area
+
 ## [0.3.0] - 2026-02-23
 
 ### Added

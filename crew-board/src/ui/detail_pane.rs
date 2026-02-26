@@ -5,9 +5,27 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
+
+/// Render a vertical scrollbar for the detail pane when content overflows.
+fn render_detail_scrollbar(frame: &mut Frame, area: Rect, scroll: u16, scroll_max: u16) {
+    if scroll_max == 0 {
+        return;
+    }
+    let content_length = (scroll_max + area.height.saturating_sub(2)) as usize;
+    let viewport = area.height.saturating_sub(2) as usize;
+    let mut scrollbar_state = ScrollbarState::new(content_length)
+        .position(scroll as usize)
+        .viewport_content_length(viewport);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"))
+        .thumb_symbol("█");
+    frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+}
 
 /// Estimate the max scroll offset for wrapped content within a bordered area.
 pub(super) fn max_scroll_for(lines: &[Line], area: Rect) -> u16 {
@@ -134,6 +152,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
             .wrap(Wrap { trim: false })
             .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
         frame.render_widget(paragraph, area);
+        render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
         return;
     }
 
@@ -362,6 +381,7 @@ fn draw_overview(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
         .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
+    render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
 }
 
 // ── Document List ───────────────────────────────────────────────────────────
@@ -475,6 +495,7 @@ fn draw_doc_list(frame: &mut Frame, app: &App, area: Rect, border_style: Style, 
         .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
+    render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
 }
 
 // ── Document Reader ─────────────────────────────────────────────────────────
@@ -560,6 +581,7 @@ fn draw_doc_reader(
         .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
+    render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
 }
 
 // ── History View ────────────────────────────────────────────────────────────
@@ -1069,6 +1091,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, border_style: Style, i
         .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
+    render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
 }
 
 // ── Repo Summary ────────────────────────────────────────────────────────────
@@ -1174,6 +1197,7 @@ fn draw_repo_summary(
         .scroll((app.detail_scroll.min(app.detail_scroll_max.get()), 0));
 
     frame.render_widget(paragraph, area);
+    render_detail_scrollbar(frame, area, app.detail_scroll, app.detail_scroll_max.get());
 }
 
 // ── Interactions & Discoveries Renderers ─────────────────────────────────
