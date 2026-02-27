@@ -143,6 +143,10 @@ pub struct SearchPopup {
     pub input: Input,
     pub results: Vec<SearchResult>,
     pub cursor: usize,
+    /// Set to true when input changes; cleared after search runs.
+    pub dirty: bool,
+    /// When the last keystroke was received (for debounce).
+    pub last_input: std::time::Instant,
 }
 
 pub struct App {
@@ -975,6 +979,8 @@ impl App {
             input: Input::default(),
             results: Vec::new(),
             cursor: 0,
+            dirty: false,
+            last_input: std::time::Instant::now(),
         });
     }
 
@@ -1010,10 +1016,31 @@ impl App {
                 popup
                     .input
                     .handle_event(&crossterm::event::Event::Key(key));
-                self.run_search();
+                // Mark dirty for debounced search (runs from event loop after typing pause)
+                popup.dirty = true;
+                popup.last_input = std::time::Instant::now();
             }
         }
         true
+    }
+
+    /// Check if a debounced search should fire. Called each event-loop tick.
+    /// Returns true if a search was triggered.
+    pub fn tick_search_debounce(&mut self) -> bool {
+        const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
+        let should_run = match &self.search_popup {
+            Some(p) => p.dirty && p.last_input.elapsed() >= DEBOUNCE,
+            None => false,
+        };
+        if should_run {
+            if let Some(p) = &mut self.search_popup {
+                p.dirty = false;
+            }
+            self.run_search();
+            true
+        } else {
+            false
+        }
     }
 
     /// Run search across all tasks using the current query.

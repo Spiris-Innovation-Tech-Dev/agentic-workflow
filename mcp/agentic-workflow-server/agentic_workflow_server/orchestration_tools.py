@@ -826,7 +826,7 @@ def _build_phase_action(
 
     # Provide git diff commands for agents that need code change context
     if agent in ("technical_writer", "feedback"):
-        wt = state.get("worktree", {})
+        wt = state.get("worktree") or {}
         base_branch = wt.get("base_branch", "main")
         result["git_diff_command"] = f"git diff {base_branch}...HEAD"
         result["git_diff_uncommitted_command"] = "git diff"

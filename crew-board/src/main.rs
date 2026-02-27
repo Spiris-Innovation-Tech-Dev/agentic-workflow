@@ -102,8 +102,13 @@ fn run_app(
         // Page size for PgUp/PgDn: terminal height minus status bar and borders
         let page_size = terminal.size().map(|s| s.height.saturating_sub(4).max(1)).unwrap_or(20);
 
-        // Poll for events with short timeout for responsive UI
-        let timeout = Duration::from_millis(250);
+        // Use shorter poll timeout when search debounce is pending
+        let search_pending = app.search_popup.as_ref().is_some_and(|p| p.dirty);
+        let timeout = if search_pending {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(250)
+        };
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 // On Windows, crossterm fires both Press and Release events.
@@ -232,6 +237,9 @@ fn run_app(
                 }
             }
         }
+
+        // Fire debounced search after keystrokes are consumed
+        app.tick_search_debounce();
 
         if app.should_quit {
             return Ok(());

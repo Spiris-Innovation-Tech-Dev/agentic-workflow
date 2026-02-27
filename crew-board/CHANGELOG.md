@@ -3,6 +3,13 @@
 All notable changes to crew-board are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2] - 2026-02-27
+
+### Fixed
+- **Search debounce** — F3 search now waits 200ms after the last keystroke before
+  running the search, instead of searching on every single keypress. Reduces
+  unnecessary disk I/O when typing quickly.
+
 ## [0.3.1] - 2026-02-26
 
 ### Fixed
