@@ -50,6 +50,7 @@ try:
         get_tasks_dir,
         _load_state,
         _save_state,
+        _detect_worktree_task_id,
     )
     from agentic_workflow_server.config_tools import config_get_effective
 except ImportError as e:
@@ -178,8 +179,29 @@ def cmd_init(args: argparse.Namespace) -> None:
     parsed = crew_parse_args(args.args)
 
     if parsed.get("errors"):
-        _output({"error": True, "errors": parsed["errors"], "action": parsed["action"]})
-        return
+        # No args provided — try to auto-resume from context
+        # 1. Worktree detection: match cwd against task worktree metadata
+        task_id = _detect_worktree_task_id()
+        # 2. .crew-resume file: directory-specific (written when worktree created)
+        if not task_id:
+            resume_file = Path.cwd() / ".crew-resume"
+            if resume_file.exists():
+                try:
+                    for line in resume_file.read_text().splitlines():
+                        if line.startswith("task_id:"):
+                            task_id = line.split(":", 1)[1].strip()
+                            break
+                except OSError:
+                    pass
+        # 3. .active_task file: global fallback (last session to write wins)
+        if not task_id:
+            task_id = _read_active_task()
+        if task_id:
+            # Auto-resume the found task
+            parsed = {"action": "resume", "task_id": task_id, "options": {}, "errors": []}
+        else:
+            _output({"error": True, "errors": parsed["errors"], "action": parsed["action"]})
+            return
 
     action = parsed["action"]
 
