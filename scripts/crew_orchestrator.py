@@ -548,6 +548,38 @@ def cmd_resume(args: argparse.Namespace) -> None:
     })
 
 
+def _classify_error(e: Exception) -> dict:
+    """Map exceptions to structured, actionable error messages."""
+    msg = str(e)
+    etype = type(e).__name__
+
+    if isinstance(e, FileNotFoundError):
+        if ".tasks" in msg or "tasks" in msg:
+            return {"error": True, "errors": ["Task directory not found"],
+                    "hint": "Run from repo root, or run '/crew <task>' to create one"}
+        return {"error": True, "errors": [f"File not found: {msg}"],
+                "hint": "Check that the file path exists and is accessible"}
+
+    if isinstance(e, AttributeError) and "NoneType" in msg:
+        return {"error": True, "errors": ["Task state could not be loaded"],
+                "hint": "Verify task ID with: ls .tasks/"}
+
+    if isinstance(e, json.JSONDecodeError):
+        return {"error": True, "errors": ["Corrupted state file"],
+                "hint": "Check state.json for syntax errors"}
+
+    if isinstance(e, KeyError):
+        return {"error": True, "errors": [f"Missing expected field: {e}"],
+                "hint": "May indicate version mismatch. Reinstall with: bash install.sh"}
+
+    if isinstance(e, PermissionError):
+        return {"error": True, "errors": [f"Permission denied: {msg}"],
+                "hint": "Check file permissions in .tasks/"}
+
+    return {"error": True, "errors": [f"Unexpected error: {etype}: {msg}"],
+            "hint": "Report at github.com/anthropics/agentic-workflow/issues"}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Crew Orchestrator — instant routing decisions for /crew workflow"
@@ -624,7 +656,7 @@ def main():
     try:
         commands[args.command](args)
     except Exception as e:
-        _output({"error": True, "errors": [str(e)]})
+        _output(_classify_error(e))
         sys.exit(1)
 
 

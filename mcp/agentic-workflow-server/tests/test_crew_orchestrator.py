@@ -548,3 +548,54 @@ class TestActiveTaskLifecycle:
         # Clean up
         if active_file.exists():
             active_file.unlink()
+
+
+class TestClassifyError:
+    """Test that the catch-all error handler produces structured JSON, not raw tracebacks."""
+
+    def test_nonexistent_task_returns_structured_error(self):
+        """Running with a nonexistent task ID produces structured JSON, not a traceback."""
+        result = subprocess.run(
+            [sys.executable, str(ORCHESTRATOR), "next", "--task-id", "NONEXISTENT_TASK_XYZ"],
+            capture_output=True, text=True, timeout=30,
+        )
+        output = json.loads(result.stdout)
+        # Should be valid JSON with an "error" field, not a raw Python traceback
+        assert "error" in output
+        assert "Traceback" not in result.stdout
+        assert "NoneType" not in result.stdout
+
+    def test_classify_error_directly(self):
+        """Import _classify_error and verify classification of known exception types."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "crew_orchestrator", str(ORCHESTRATOR))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        # FileNotFoundError with .tasks
+        result = mod._classify_error(FileNotFoundError("[Errno 2] No such file or directory: '.tasks/FOO'"))
+        assert result["error"] is True
+        assert "Task directory not found" in result["errors"][0]
+        assert "hint" in result
+
+        # AttributeError with NoneType
+        result = mod._classify_error(AttributeError("'NoneType' object has no attribute 'get'"))
+        assert "Task state could not be loaded" in result["errors"][0]
+
+        # KeyError
+        result = mod._classify_error(KeyError("config"))
+        assert "Missing expected field" in result["errors"][0]
+
+        # json.JSONDecodeError
+        result = mod._classify_error(json.JSONDecodeError("Expecting value", "", 0))
+        assert "Corrupted state file" in result["errors"][0]
+
+        # PermissionError
+        result = mod._classify_error(PermissionError("Permission denied: '.tasks/foo'"))
+        assert "Permission denied" in result["errors"][0]
+
+        # Unknown error type
+        result = mod._classify_error(RuntimeError("something weird"))
+        assert "Unexpected error" in result["errors"][0]
+        assert "RuntimeError" in result["errors"][0]

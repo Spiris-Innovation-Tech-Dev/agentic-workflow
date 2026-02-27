@@ -56,6 +56,7 @@ INTERACTION_TYPES = [
     "guidance",
     "escalation_question",
     "escalation_response",
+    "state_change",
 ]
 
 # 8 dark color schemes for worktree terminal tabs.  Cycled by task number.
@@ -118,9 +119,11 @@ def find_task_dir(task_id: Optional[str] = None) -> Optional[Path]:
         task_dir = get_tasks_dir() / task_id
         if task_dir.exists():
             return task_dir
-        for d in get_tasks_dir().iterdir():
-            if d.is_dir() and d.name.lower() == task_id.lower():
-                return d
+        tasks_dir = get_tasks_dir()
+        if tasks_dir.exists():
+            for d in tasks_dir.iterdir():
+                if d.is_dir() and d.name.lower() == task_id.lower():
+                    return d
         return None
 
     return _find_active_task_dir()
@@ -270,14 +273,77 @@ def _create_default_state(task_id: str) -> dict:
     }
 
 
+def _log_state_changes(task_dir: Path, old_state: dict, new_state: dict) -> None:
+    """Append a state_change entry to interactions.jsonl when tracked fields change."""
+    try:
+        changes: dict[str, Any] = {}
+
+        # Scalar fields
+        for field in ("phase", "status"):
+            old_val = old_state.get(field)
+            new_val = new_state.get(field)
+            if old_val != new_val:
+                changes[field] = {"from": old_val, "to": new_val}
+
+        # List field — phases_completed
+        old_list = old_state.get("phases_completed", [])
+        new_list = new_state.get("phases_completed", [])
+        if old_list != new_list:
+            changes["phases_completed"] = {"from": old_list, "to": new_list}
+
+        # Nested scalar — workflow_mode.effective
+        old_mode = old_state.get("workflow_mode", {}).get("effective")
+        new_mode = new_state.get("workflow_mode", {}).get("effective")
+        if old_mode != new_mode:
+            changes["workflow_mode.effective"] = {"from": old_mode, "to": new_mode}
+
+        if not changes:
+            return
+
+        # Build human-readable summary
+        parts = []
+        for field, delta in changes.items():
+            parts.append(f"{field} {delta['from']} -> {delta['to']}")
+        content = "State changed: " + ", ".join(parts)
+
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "role": "system",
+            "content": content,
+            "type": "state_change",
+            "agent": "",
+            "phase": new_state.get("phase", ""),
+            "metadata": {"changes": changes},
+        }
+
+        interactions_file = task_dir / "interactions.jsonl"
+        lock_file = task_dir / "interactions.jsonl.lock"
+        with FileLock(str(lock_file), timeout=5):
+            with open(interactions_file, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass  # Never block state persistence
+
+
 def _save_state(task_dir: Path, state: dict) -> None:
     task_dir.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = datetime.now().isoformat()
     state_file = task_dir / "state.json"
     lock_file = task_dir / "state.json.lock"
+
+    old_state = None
     with FileLock(str(lock_file)):
+        if state_file.exists():
+            try:
+                with open(state_file, "r") as f:
+                    old_state = json.load(f)
+            except Exception:
+                old_state = None
         with open(state_file, "w") as f:
             json.dump(state, f, indent=2)
+
+    if old_state is not None:
+        _log_state_changes(task_dir, old_state, state)
 
 
 def _get_next_task_id() -> str:

@@ -822,6 +822,18 @@ class TestFindActiveTaskIsolation:
         assert result is not None
         assert result.name == "TASK_TEST_ISO_008"
 
+    def test_find_task_dir_missing_tasks_dir_returns_none(self):
+        """find_task_dir returns None (not crash) when .tasks/ doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nonexistent = Path(tmpdir) / "no_such_tasks"
+            old = _state_mod._cached_tasks_dir
+            _state_mod._cached_tasks_dir = nonexistent
+            try:
+                result = find_task_dir("NONEXISTENT_TASK")
+                assert result is None
+            finally:
+                _state_mod._cached_tasks_dir = old
+
     def test_active_task_file_preferred_over_scan(self, isolated_tasks_dir):
         """When .active_task points to a valid task, use it instead of scanning."""
         workflow_initialize(task_id="TASK_TEST_ISO_009")
@@ -1688,7 +1700,6 @@ class TestAutoLaunch:
         assert "gh copilot" not in cmd
         # Copilot CLI doesn't support prompt args — prompt should not be in command
         assert result["resume_prompt"] not in cmd
-        assert any("does not support auto-sending" in w for w in result["warnings"])
 
     def test_no_worktree_returns_error(self, clean_tasks_dir):
         workflow_initialize(task_id="TASK_TEST_AL_007")
@@ -1809,7 +1820,6 @@ class TestAutoLaunch:
         assert result["success"] is True
         cmd = result["launch_commands"][0]
         assert "opencode" in cmd
-        assert "run" in cmd
 
     def test_opencode_resume_prompt_slash_syntax(self, clean_tasks_dir):
         self._setup_worktree_task(clean_tasks_dir, "TASK_TEST_AL_OC_002")

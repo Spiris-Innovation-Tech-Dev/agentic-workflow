@@ -370,7 +370,7 @@ def crew_init_task(
 
     # Step 1: Get effective config
     effective = config_get_effective(project_dir=project_dir)
-    config = effective["config"]
+    config = effective.get("config", {})
 
     # Step 2: Apply CLI overrides
     override_result = crew_apply_config_overrides(options)
@@ -682,7 +682,7 @@ def crew_get_next_phase(
 
     # Get effective config for checkpoint/parallel settings
     effective = config_get_effective(task_id=state.get("task_id"))
-    config = effective["config"]
+    config = effective.get("config", {})
 
     # Determine what phase comes next
     if current_phase is None:
@@ -1061,7 +1061,7 @@ def crew_get_implementation_action(
     })
 
     effective = config_get_effective(task_id=state.get("task_id"))
-    config = effective["config"]
+    config = effective.get("config", {})
     loop_config = config.get("loop_mode", {})
     loop_enabled = loop_config.get("enabled", False)
     max_per_step = loop_config.get("max_iterations", {}).get("per_step", 10)
@@ -1239,7 +1239,7 @@ def crew_format_completion(
     worktree_commands = []
 
     effective = config_get_effective(task_id=resolved_task_id)
-    config = effective["config"]
+    config = effective.get("config", {})
     cleanup_policy = config.get("worktree", {}).get("cleanup_on_complete", "prompt")
 
     if worktree_result.get("has_worktree"):
@@ -1381,7 +1381,7 @@ def crew_jira_transition(
 
     # Get effective config
     effective = config_get_effective(task_id=task_id)
-    config = effective["config"]
+    config = effective.get("config", {})
 
     # Navigate to transition config
     jira_config = config.get("worktree", {}).get("jira", {})
