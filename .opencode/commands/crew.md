@@ -6,14 +6,11 @@ You orchestrate the /crew workflow by running the orchestrator script for routin
 
 ### Initialize
 
-Run: `python3 scripts/crew_orchestrator.py init --args "$ARGUMENTS"`
+Run: `python3 scripts/crew_orchestrator.py init --host opencode --args "$ARGUMENTS"`
 
 The script returns JSON with `action` and routing details. Handle by action:
 
-- **start** → Display task summary (ID, mode, optional agents), log the user's task description, then run Context Preparation and Beads Integration (below), then enter Action Loop with `result.next`:
-  ```
-  python3 scripts/crew_orchestrator.py log-interaction --task-id <id> --role human --content "<original task description>" --type message --phase init
-  ```
+- **start** → Display task summary (ID, mode, optional agents), then run Context Preparation and Beads Integration (below), then enter Action Loop with `result.next`
 - **resume** → Display `result.resume_state.display_summary`, enter Action Loop with `result.next`
 - **status** → List `.tasks/` contents and show active workflows
 - **config** → Call `config_get_effective()` and display configuration

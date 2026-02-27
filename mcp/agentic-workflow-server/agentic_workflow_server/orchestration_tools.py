@@ -28,6 +28,7 @@ from .state_tools import (
     workflow_mark_docs_needed,
     workflow_add_review_issue,
     workflow_add_concern,
+    workflow_log_interaction,
     _load_state,
     _save_state,
     _REPO_ROOT,
@@ -427,6 +428,24 @@ def crew_init_task(
         # Save task description
         with open(task_dir / "task.md", "w") as f:
             f.write(f"# Task\n\n{task_description}\n")
+
+    # Log initial user input so every platform gets it automatically
+    ai_host = options.get("ai_host", config.get("ai_host", "unknown"))
+    workflow_log_interaction(
+        role="human",
+        content=task_description,
+        interaction_type="message",
+        agent="",
+        phase="init",
+        task_id=task_id,
+        metadata={"ai_host": ai_host},
+    )
+
+    # Store ai_host in state.json for crew-board display
+    if task_dir:
+        state = _load_state(task_dir)
+        state["ai_host"] = ai_host
+        _save_state(task_dir, state)
 
     return {
         "success": True,

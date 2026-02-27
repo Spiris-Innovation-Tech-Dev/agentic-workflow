@@ -197,6 +197,14 @@ def cmd_init(args: argparse.Namespace) -> None:
         if resume.get("error"):
             _output({"error": True, "errors": [resume["error"]]})
             return
+        workflow_log_interaction(
+            role="system",
+            content="Session resumed",
+            interaction_type="message",
+            phase="init",
+            task_id=task_id,
+            metadata={"ai_host": args.host},
+        )
         next_action = crew_get_next_phase(task_id=task_id)
         _write_active_task(task_id)
         _output({
@@ -218,6 +226,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Action is "start" — full initialization
     task_description = parsed["task_description"]
     options = parsed.get("options", {})
+    options["ai_host"] = args.host
 
     # Resolve task description from file if specified
     if options.get("task_file"):
@@ -490,6 +499,12 @@ def cmd_log_interaction(args: argparse.Namespace) -> None:
 
     Wraps: workflow_log_interaction
     """
+    metadata = None
+    if args.metadata:
+        try:
+            metadata = json.loads(args.metadata)
+        except json.JSONDecodeError:
+            pass
     result = workflow_log_interaction(
         role=args.role,
         content=args.content,
@@ -497,6 +512,7 @@ def cmd_log_interaction(args: argparse.Namespace) -> None:
         agent=args.agent or "",
         phase=args.phase or "",
         task_id=args.task_id,
+        metadata=metadata,
     )
     _output(result)
 
@@ -512,6 +528,15 @@ def cmd_resume(args: argparse.Namespace) -> None:
     if resume.get("error"):
         _output({"error": True, "errors": [resume["error"]]})
         return
+
+    workflow_log_interaction(
+        role="system",
+        content="Session resumed",
+        interaction_type="message",
+        phase="init",
+        task_id=task_id,
+        metadata={"ai_host": args.host},
+    )
 
     next_action = crew_get_next_phase(task_id=task_id)
     _write_active_task(task_id)
@@ -532,6 +557,7 @@ def main():
     # init
     p_init = subparsers.add_parser("init", help="Parse args, init task, get first action")
     p_init.add_argument("--args", required=True, help="Raw /crew arguments string")
+    p_init.add_argument("--host", default="unknown", help="AI host platform identifier")
 
     # next
     p_next = subparsers.add_parser("next", help="Get next phase/action")
@@ -575,10 +601,12 @@ def main():
                                 "guidance", "escalation_question", "escalation_response"])
     p_log.add_argument("--agent", help="Agent context (e.g., orchestrator, architect)")
     p_log.add_argument("--phase", help="Current workflow phase")
+    p_log.add_argument("--metadata", help="JSON metadata string")
 
     # resume
     p_resume = subparsers.add_parser("resume", help="Load resume context")
     p_resume.add_argument("--task-id", required=True, help="Task identifier")
+    p_resume.add_argument("--host", default="unknown", help="AI host platform identifier")
 
     args = parser.parse_args()
 

@@ -1332,6 +1332,11 @@ TOOLS = [
                 "task_id": {
                     "type": "string",
                     "description": "Task identifier. If not provided, uses active task."
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional metadata dict (e.g., ai_host, terminal_env)",
+                    "additionalProperties": True
                 }
             },
             "required": ["role", "content"]

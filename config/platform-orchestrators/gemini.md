@@ -30,6 +30,14 @@ Call MCP tool: agentic-workflow__workflow_initialize({ description: "<user's tas
 → Returns task_id, e.g. "TASK_042"
 ```
 
+Log the session start:
+```
+Call MCP tool: agentic-workflow__workflow_log_interaction({
+  role: "human", content: "<user's task>", interaction_type: "message",
+  phase: "init", task_id: "TASK_042", metadata: { ai_host: "gemini" }
+})
+```
+
 ### Step 2: Detect Mode
 
 ```

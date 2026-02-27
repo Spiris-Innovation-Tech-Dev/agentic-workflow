@@ -4073,6 +4073,7 @@ def workflow_log_interaction(
     agent: str = "",
     phase: str = "",
     task_id: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Append an interaction entry to .tasks/TASK_XXX/interactions.jsonl.
 
@@ -4106,6 +4107,8 @@ def workflow_log_interaction(
         "agent": agent,
         "phase": phase,
     }
+    if metadata:
+        entry["metadata"] = metadata
 
     interactions_file = task_dir / "interactions.jsonl"
     lock_file = task_dir / "interactions.jsonl.lock"
